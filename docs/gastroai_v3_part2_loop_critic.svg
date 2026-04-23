@@ -1,0 +1,118 @@
+<svg width="100%" viewBox="0 0 760 780" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+</defs>
+
+<!-- ══════════════════════════════════════════════════════════
+     LAYER 3: Loop / Critic
+     ══════════════════════════════════════════════════════════ -->
+<rect x="40" y="18" width="680" height="700" rx="12" fill="none" stroke="#FAC775" stroke-width="1" stroke-dasharray="6 4"/>
+<text x="56" y="36" fill="#BA7517" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">Patrón Loop / Critic</text>
+
+<!-- Input from part 1 -->
+<rect x="220" y="46" width="280" height="36" rx="6" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="360" y="64" text-anchor="middle" dominant-baseline="central" fill="#444441" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="14" font-weight="500">Consolidación + warnings</text>
+
+<line x1="360" y1="82" x2="360" y2="104" stroke="#888780" stroke-width="1" marker-end="url(#arrow)"/>
+
+<!-- RAG knowledge base — right -->
+<rect x="548" y="98" width="154" height="56" rx="6" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="625" y="118" text-anchor="middle" dominant-baseline="central" fill="#0C447C" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="14" font-weight="500">RAG knowledge base</text>
+<text x="625" y="136" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">auditor interviews · NIIF</text>
+
+<!-- CEO Archetype Store — NEW, left side -->
+<rect x="58" y="98" width="164" height="56" rx="6" fill="#F3E8FF" stroke="#7C3AED" stroke-width="1.2"/>
+<text x="140" y="116" text-anchor="middle" dominant-baseline="central" fill="#3B0764" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="13" font-weight="600">CEO Archetype Store</text>
+<text x="140" y="132" text-anchor="middle" dominant-baseline="central" fill="#7C3AED" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">lens · questions · weights</text>
+<text x="56" y="90" fill="#7C3AED" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="10" font-weight="600">NEW</text>
+
+<!-- CEO Store feeds into Consultor -->
+<line x1="222" y1="126" x2="248" y2="132" stroke="#9333EA" stroke-width="0.8" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+<!-- RAG feeds into Consultor -->
+<line x1="548" y1="126" x2="498" y2="132" stroke="#185FA5" stroke-width="0.8" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+
+<!-- Consultor Especialista -->
+<rect x="250" y="104" width="240" height="56" rx="6" fill="#FAE8D4" stroke="#854F0B" stroke-width="0.5"/>
+<text x="370" y="124" text-anchor="middle" dominant-baseline="central" fill="#63380A" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="14" font-weight="500">Consultor Especialista</text>
+<text x="370" y="142" text-anchor="middle" dominant-baseline="central" fill="#854F0B" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">RAG / NIIF</text>
+
+<line x1="370" y1="160" x2="370" y2="182" stroke="#BA7517" stroke-width="1" marker-end="url(#arrow)"/>
+
+<!-- ── Auditor Agent — NEW NODE (replaces compressed phrase) ── -->
+<rect x="250" y="182" width="240" height="70" rx="6" fill="#F3E8FF" stroke="#7C3AED" stroke-width="1.5"/>
+<text x="370" y="204" text-anchor="middle" dominant-baseline="central" fill="#3B0764" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="14" font-weight="600">Auditor Agent</text>
+<text x="370" y="221" text-anchor="middle" dominant-baseline="central" fill="#7C3AED" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">applies CEO question framework</text>
+<text x="370" y="237" text-anchor="middle" dominant-baseline="central" fill="#9333EA" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="10">scores · gaps · blind spots → compressed signal</text>
+<text x="222" y="198" fill="#7C3AED" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="10" font-weight="600">NEW</text>
+
+<line x1="370" y1="252" x2="370" y2="274" stroke="#9333EA" stroke-width="1" marker-end="url(#arrow)"/>
+
+<!-- Phrase Expander -->
+<rect x="250" y="274" width="240" height="56" rx="6" fill="#FAE8D4" stroke="#854F0B" stroke-width="0.5"/>
+<text x="370" y="294" text-anchor="middle" dominant-baseline="central" fill="#63380A" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="14" font-weight="500">Phrase Expander</text>
+<text x="370" y="312" text-anchor="middle" dominant-baseline="central" fill="#854F0B" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">LLM → full explanation</text>
+
+<line x1="370" y1="330" x2="370" y2="352" stroke="#BA7517" stroke-width="1" marker-end="url(#arrow)"/>
+
+<!-- Revisor de Calidad / Enforcer -->
+<rect x="250" y="352" width="240" height="56" rx="6" fill="#FAE8D4" stroke="#854F0B" stroke-width="0.5"/>
+<text x="370" y="372" text-anchor="middle" dominant-baseline="central" fill="#63380A" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="14" font-weight="500">Revisor de calidad</text>
+<text x="370" y="390" text-anchor="middle" dominant-baseline="central" fill="#854F0B" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">The Enforcer</text>
+
+<!-- Rejection loop — back to Consultor -->
+<path d="M250 380 L170 380 L170 132 L250 132" fill="none" stroke="#E24B4A" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<text x="128" y="296" text-anchor="middle" fill="#A32D2D" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">rechazo</text>
+<text x="128" y="310" text-anchor="middle" fill="#A32D2D" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">/ corrección</text>
+
+<!-- Warning targeted rerun → Phrase Expander -->
+<path d="M490 380 L590 380 L590 295 L490 295" fill="none" stroke="#BA7517" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<text x="604" y="310" text-anchor="start" fill="#854F0B" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">targeted</text>
+<text x="604" y="324" text-anchor="start" fill="#854F0B" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">rerun</text>
+<text x="604" y="338" text-anchor="start" fill="#854F0B" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">(warnings only)</text>
+
+<!-- CEO Question Loop — Auditor can re-trigger if score < threshold -->
+<path d="M490 217 L630 217 L630 132 L490 132" fill="none" stroke="#9333EA" stroke-width="1" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+<text x="634" y="168" text-anchor="start" fill="#7C3AED" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="10">CEO re-score</text>
+<text x="634" y="182" text-anchor="start" fill="#7C3AED" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="10">loop</text>
+<text x="634" y="196" text-anchor="start" fill="#9333EA" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="10">(if score &lt; threshold)</text>
+<text x="598" y="205" fill="#7C3AED" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="10" font-weight="600">NEW</text>
+
+<line x1="370" y1="408" x2="370" y2="430" stroke="#BA7517" stroke-width="1" marker-end="url(#arrow)"/>
+
+<!-- Aprobación estilística -->
+<rect x="250" y="430" width="240" height="44" rx="6" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+<text x="370" y="452" text-anchor="middle" dominant-baseline="central" fill="#444441" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="14" font-weight="500">Aprobación estilística</text>
+
+<line x1="370" y1="474" x2="370" y2="496" stroke="#888780" stroke-width="1" marker-end="url(#arrow)"/>
+
+<!-- Final report -->
+<rect x="220" y="496" width="300" height="60" rx="6" fill="#EAF3DE" stroke="#3B6D11" stroke-width="1"/>
+<text x="370" y="518" text-anchor="middle" dominant-baseline="central" fill="#274F0A" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="14" font-weight="500">Informe final de auditoría</text>
+<text x="370" y="538" text-anchor="middle" dominant-baseline="central" fill="#3B6D11" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="12">expanded · validated · CEO-framed</text>
+
+<!-- ── HOW QUESTION FRAMEWORK FLOWS (callout box) ── -->
+<rect x="58" y="420" width="176" height="150" rx="8" fill="#FAF5FF" stroke="#7C3AED" stroke-width="1"/>
+<text x="146" y="440" text-anchor="middle" fill="#3B0764" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11" font-weight="700">Q-Framework active in</text>
+<text x="146" y="454" text-anchor="middle" fill="#3B0764" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11" font-weight="700">Auditor Agent</text>
+<line x1="68" y1="462" x2="226" y2="462" stroke="#C084FC" stroke-width="0.5"/>
+<text x="68" y="477" fill="#581C87" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="10">1. What is the real constraint?</text>
+<text x="68" y="492" fill="#581C87" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="10">2. Where is margin leaking?</text>
+<text x="68" y="507" fill="#581C87" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="10">3. What's ignored in the data?</text>
+<text x="68" y="522" fill="#581C87" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="10">4. What does 3x scale look like?</text>
+<text x="68" y="537" fill="#581C87" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="10">5. Is this improving bottleneck?</text>
+<!-- arrow from callout to Auditor Agent -->
+<path d="M234 487 L250 217" fill="none" stroke="#9333EA" stroke-width="0.7" stroke-dasharray="3 3" marker-end="url(#arrow)"/>
+
+<!-- ── LEGEND ── -->
+<line x1="56" y1="644" x2="80" y2="644" stroke="#185FA5" stroke-width="0.8" stroke-dasharray="4 3"/>
+<text x="86" y="648" fill="#3D3D3A" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">RAG query</text>
+<line x1="200" y1="644" x2="224" y2="644" stroke="#E24B4A" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="230" y="648" fill="#3D3D3A" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">rechazo loop</text>
+<line x1="380" y1="644" x2="404" y2="644" stroke="#BA7517" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="410" y="648" fill="#3D3D3A" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">warning rerun</text>
+<line x1="540" y1="644" x2="564" y2="644" stroke="#9333EA" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="570" y="648" fill="#3D3D3A" font-family="'Anthropic Sans', -apple-system, sans-serif" font-size="11">CEO lens / Q-loop</text>
+</svg>
