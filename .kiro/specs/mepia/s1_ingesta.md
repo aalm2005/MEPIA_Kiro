@@ -1,73 +1,77 @@
 # S1 — Ingesta (The 5 Inputs)
 
 **Capa:** Sequential | **Siguiente nodo:** S2 Gatekeeper
-**Archivos relacionados:** `app/api/upload/route.ts`, `api/main.py`, `db_schema.md`
+**Archivos relacionados:** `api/main.py`, `db_schema.md`, `n01_pos_pdf_input.md`, `n02_facturas_input.md`, `n03_human_input_endpoints.md`
+**Enfoque:** API-First / Headless — sin dependencias de UI
 
 ## Los 5 inputs
 
-| # | Fuente              | Mecanismo           | Destino DB                        |
-|---|---------------------|---------------------|-----------------------------------|
-| 1 | POS / PDF           | OCR + mapeo         | `documents` + `transactions`      |
-| 2 | Facturas proveedor  | OCR + mapeo         | `documents` + `transactions`      |
-| 3 | Recetas (BOM)       | Formulario manual   | `recipes`                         |
-| 4 | Config inicial      | Onboarding          | `businesses`                      |
-| 5 | Contexto del día    | Tags rápidos + texto| `daily_context.tags` (JSONB)      |
+| # | Fuente              | Mecanismo                  | Destino DB                          |
+|---|---------------------|----------------------------|-------------------------------------|
+| 1 | POS / PDF           | OCR + mapeo Pydantic       | `documents` + `transactions`        |
+| 2 | Facturas proveedor  | XML determinístico / OCR   | `documents` + `transactions`        |
+| 3 | Recetas (BOM)       | Formulario manual          | `recipes`                           |
+| 4 | Config inicial      | Onboarding                 | `businesses` + `business_fixed_costs`|
+| 5 | Contexto del día    | Tags rápidos + texto libre | `daily_context.tags` (JSONB)        |
 
-## Input 5 — Formulario de Contexto (Tags Rápidos)
+---
 
-Componente presentado al cierre de cada carga o fin de día. Opciones cerradas para minimizar fricción.
+## Input 2 — Facturas de Proveedor
 
-```
-Clima:    [Lluvia] [Calor] [Frío]
-Equipo:   [Falla de Máquina] [Mantenimiento]
-Evento:   [Festivo] [Obra Vial] [Promoción]
-Personal: [Falta de Staff] [Capacitación]
-Otros:    [campo de texto libre]
-```
+Detalle completo del contrato de API en `n02_facturas_input.md`.
 
-Se guarda en `daily_context.tags` (JSONB):
+Resumen del flujo:
+- XML: parseo determinístico (lxml) → confianza 100%, sin OCR
+- PDF: modelo visión/OCR → umbral 85%
+- Endpoint: `POST /ingest/factura`
+- Revisión humana: `PATCH /ingest/factura/{file_id}/review` (ver `n02_facturas_input.md`)
+- `expense_behavior` siempre sale como `null` de este paso — se confirma vía `n03_human_input_endpoints.md`
+
+---
+
+## Input 4 — Configuración Inicial (Onboarding)
+
+Contrato de API completo en `n03_human_input_endpoints.md` → `POST /onboarding/business`.
+
+Resumen: operación atómica que crea `businesses` + mínimo 1 `business_fixed_costs`. Rollback total si falla cualquier gasto fijo.
+
+## Input 5 — Contexto del Día (Tags)
+
+Contrato de API en `n03_human_input_endpoints.md` → `POST /daily-context`.
+
+Estructura del JSONB guardado en `daily_context.tags`:
 ```json
-{
-  "clima": "lluvia",
-  "equipo": "falla_maquina",
-  "evento": null,
-  "personal": null,
-  "otros": "La máquina de espresso estuvo fuera 3 horas"
-}
+{ "clima": "lluvia", "equipo": "falla_maquina", "evento": null, "personal": null, "otros": "..." }
 ```
+Regla: `null` en campos vacíos, nunca string vacío.
+
+---
 
 ## Input 3 — Receta Técnica (BOM)
-
-Define el costo teórico de cada producto. Base para calcular mermas.
 
 ```
 Café Latte = { cafe_g: 18, leche_ml: 250, vaso: 1 }
 ```
+Guardado en `recipes.ingredients` (JSONB). Receta duplicada → sobrescribir.
 
-Se guarda en tabla `recipes`: `product_name`, `business_id`, `ingredients` (JSONB).
+---
 
 ## Output de S1
 
-`POSIngestResult`:
 ```
 file_id: UUID → documents.id
-storage_path: string → documents.storage_path
-extraction_status: "success" | "fallback_required" → documents.ocr_status
+storage_path: string
+extraction_status: "success" | "fallback_required" | "needs_human_review"
 extracted_data: JSONB → documents.extracted_data
 context_tag_id: UUID → daily_context.id
+needs_human_review: bool
 ```
 
 ## Acceptance Criteria
 
-- WHEN PDF válido → persistir en Storage + insertar en `documents` con `ocr_status: "pending"`
-- WHEN OCR completa → actualizar `ocr_status: "processed"` + poblar `extracted_data`
-- WHEN OCR falla → `ocr_status: "error"` + mostrar formulario manual
-- WHEN usuario envía tags → insertar en `daily_context` con `business_id` + `date`
-- WHEN campo "Otros" vacío → guardar `null`, no string vacío
-- WHEN receta guardada → validar que `ingredients` tenga al menos 1 campo no nulo
-
-## Edge Cases
-
-- PDF con contraseña → `ocr_status: "error"` + mensaje al usuario
-- Tags enviados sin PDF del día → aceptar y asociar a `date` actual
-- Receta duplicada para mismo producto → sobrescribir, no duplicar
+- WHEN OCR confianza < 85% → `needs_human_review: true`, no pasar a S2
+- WHEN OCR confianza ≥ 85% → mapear campos obligatorios, resto a `raw_metadata`
+- WHEN campo obligatorio ausente en factura → `needs_human_review: true`
+- WHEN receta guardada → validar ≥ 1 ingrediente no nulo
+- WHEN tags enviados → `null` en campos vacíos, nunca string vacío
+- WHEN onboarding completo → `businesses` + al menos 1 registro en `business_fixed_costs`

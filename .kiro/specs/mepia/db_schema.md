@@ -1,6 +1,6 @@
 # MEPIA — Arquitectura de Base de Datos
 
-**Tipo:** Híbrida — campos estructurados para cálculos financieros + JSONB para datos flexibles
+**Tipo:** Híbrida — campos estructurados para cálculos + JSONB para datos flexibles
 **Motor:** PostgreSQL via Supabase
 **Migración:** `supabase/migrations/002_hybrid_schema.sql`
 
@@ -8,91 +8,214 @@
 
 ## Tabla: `businesses`
 
-Entidad raíz. Todo dato financiero está ligado a un negocio.
+| Campo            | Tipo        | Notas                              |
+|------------------|-------------|------------------------------------|
+| id               | uuid PK     | gen_random_uuid()                  |
+| business_name    | text        | Nombre del restaurante             |
+| industry_sector  | text        | ej. "cafetería", "restaurante"     |
+| currency         | text        | ISO 4217, default "MXN"            |
+| operating_hours  | jsonb       | `{ "open": "08:00", "close": "22:00" }` |
+| created_at       | timestamptz | default now()                      |
 
-| Campo      | Tipo    | Notas                              |
-|------------|---------|------------------------------------|
-| id         | uuid PK | gen_random_uuid()                  |
-| name       | text    | Nombre del restaurante             |
-| sector     | text    | ej. "restaurante", "cafetería"     |
-| currency   | text    | ISO 4217, default "MXN"            |
-| created_at | timestamptz | default now()                  |
+---
+
+## Tabla: `business_fixed_costs`
+
+Gastos fijos iniciales capturados en onboarding. Base para `calc_daily_break_even`.
+
+| Campo            | Tipo        | Notas                                        |
+|------------------|-------------|----------------------------------------------|
+| id               | uuid PK     | gen_random_uuid()                            |
+| business_id      | uuid FK     | → businesses.id                              |
+| concept          | text        | ej. "Renta", "CFE", "Nómina base"            |
+| amount           | numeric(12,2)|                                             |
+| recurrence       | text        | "monthly" \| "weekly"                        |
+| expense_behavior | text        | "FIXED" \| "VARIABLE" \| "CAPEX"             |
+| is_active        | bool        | default true                                 |
 
 ---
 
 ## Tabla: `documents`
 
-Gestiona archivos subidos (PDFs, XMLs, imágenes). Punto de entrada del pipeline.
-
-| Campo          | Tipo    | Notas                                          |
-|----------------|---------|------------------------------------------------|
-| id             | uuid PK | = file_id del POSIngestResult                  |
-| business_id    | uuid FK | → businesses.id                                |
-| storage_path   | text    | Ruta en Supabase Storage                       |
-| filename       | text    | Nombre original del archivo                    |
-| document_type  | text    | "PDF" \| "XML" \| "JPG"                        |
-| ocr_status     | text    | "pending" \| "processed" \| "error"            |
-| uploaded_at    | timestamptz | default now()                              |
-| extracted_data | jsonb   | Respuesta cruda del agente IA antes de normalizar a transactions |
-
-**`extracted_data` — ejemplos de contenido:**
-```json
-// Ticket POS
-{ "business_name": "Café Roma", "period": "2026-04-22",
-  "totals": { "total_ventas": 5150.00, "numero_transacciones": 47 },
-  "extraction_status": "success" }
-
-// Factura proveedor
-{ "proveedor": "Lácteos del Norte", "serie": "A-00123",
-  "dias_credito": 30, "subtotal": 4200.00, "iva": 672.00 }
-```
+| Campo          | Tipo        | Notas                                                  |
+|----------------|-------------|--------------------------------------------------------|
+| id             | uuid PK     | = file_id del POSIngestResult                          |
+| business_id    | uuid FK     | → businesses.id                                        |
+| storage_path   | text        | Ruta en Supabase Storage                               |
+| filename       | text        |                                                        |
+| document_type  | text        | "PDF" \| "XML" \| "JPG"                                |
+| ocr_status     | text        | "pending" \| "processed" \| "error"                    |
+| ocr_confidence | numeric(5,2)| 0–100. < 85 → needs_human_review                       |
+| needs_human_review | bool    | true si confianza < 85% o campo obligatorio ausente    |
+| uploaded_at    | timestamptz | default now()                                          |
+| extracted_data | jsonb       | Respuesta cruda del agente IA                          |
 
 ---
 
 ## Tabla: `transactions`
 
-Datos financieros normalizados. Campos fijos para cálculos + JSONB para variaciones por tipo de documento.
-
-| Campo            | Tipo         | Notas                                              |
-|------------------|--------------|----------------------------------------------------|
-| id               | uuid PK      | gen_random_uuid()                                  |
-| business_id      | uuid FK      | → businesses.id (NOT NULL)                         |
-| document_id      | uuid FK      | → documents.id (trazabilidad al archivo origen)    |
-| type             | text         | "ingreso" \| "egreso"                              |
-| category         | text         | "venta" \| "nomina" \| "proveedor" \| "impuesto"   |
-| amount           | numeric(12,2)| Siempre positivo; type define la dirección         |
-| transaction_date | date         | Fecha del evento financiero                        |
-| created_at       | timestamptz  | default now()                                      |
-| metadata         | jsonb        | Datos extra que varían por tipo de documento       |
-
-**`metadata` — ejemplos por categoría:**
-```json
-// category = "venta" (ticket POS)
-{ "metodo_pago": "efectivo", "cajero_id": "C-04", "turno": "matutino" }
-
-// category = "proveedor" (factura)
-{ "serie_factura": "A-00123", "dias_credito": 30, "proveedor": "Lácteos del Norte" }
-
-// category = "nomina"
-{ "empleado_id": "E-12", "periodo": "quincenal", "concepto": "sueldo base" }
-```
+| Campo              | Tipo         | Notas                                                  |
+|--------------------|--------------|--------------------------------------------------------|
+| id                 | uuid PK      | gen_random_uuid()                                      |
+| business_id        | uuid FK      | → businesses.id (NOT NULL)                             |
+| document_id        | uuid FK      | → documents.id                                         |
+| type               | text         | "ingreso" \| "egreso"                                  |
+| category           | text         | "venta" \| "nomina" \| "proveedor" \| "impuesto"       |
+| amount             | numeric(12,2)|                                                        |
+| tax_amount         | numeric(12,2)| IVA extraído de factura                                |
+| transaction_date   | date         |                                                        |
+| supplier_name      | text         | Nombre del proveedor (facturas)                        |
+| concept            | text         | Descripción / partidas                                 |
+| document_reference | text         | Folio o referencia del documento                       |
+| expense_behavior   | text         | "FIXED" \| "VARIABLE" \| "CAPEX" — confirmado vía `PATCH /transactions/{id}/expense-behavior` |
+| metadata           | jsonb        | Datos extra por tipo (método de pago, cajero, etc.)    |
+| raw_metadata       | jsonb        | Todo campo extraído fuera del mapeo obligatorio (future-proofing) |
+| created_at         | timestamptz  | default now()                                          |
 
 ---
 
-## Índices y restricciones
+## Tabla: `pos_inputs`
+
+Ventas diarias del POS. Input para `calc_cash_reconciliation`.
+
+| Campo          | Tipo         | Notas                          |
+|----------------|--------------|--------------------------------|
+| id             | uuid PK      |                                |
+| business_id    | uuid FK      | → businesses.id                |
+| date           | date         |                                |
+| total_sales    | numeric(12,2)|                                |
+| cash_sales     | numeric(12,2)|                                |
+| card_sales     | numeric(12,2)|                                |
+| refunds        | numeric(12,2)| default 0                      |
+| num_transactions | int        |                                |
+
+---
+
+## Tabla: `cash_counts`
+
+Conteo físico del cajón. Input para `calc_cash_reconciliation`.
+
+| Campo          | Tipo         | Notas                          |
+|----------------|--------------|--------------------------------|
+| id             | uuid PK      |                                |
+| business_id    | uuid FK      | → businesses.id                |
+| date           | date         |                                |
+| initial_float  | numeric(12,2)| Fondo inicial del día          |
+| actual_counted | numeric(12,2)| Efectivo contado al cierre     |
+| cash_payouts   | numeric(12,2)| Pagos en efectivo realizados   |
+| recorded_by    | text         | ID del cajero                  |
+
+---
+
+## Tabla: `recipes`
+
+| Campo        | Tipo        | Notas                                      |
+|--------------|-------------|--------------------------------------------|
+| id           | uuid PK     |                                            |
+| business_id  | uuid FK     | → businesses.id                            |
+| product_name | text        | ej. "Café Latte"                           |
+| sale_price   | numeric(12,2)| Precio de venta actual                    |
+| ingredients  | jsonb       | `{ "cafe_g": 18, "leche_ml": 250 }`        |
+| updated_at   | timestamptz | default now()                              |
+
+---
+
+## Tabla: `daily_context`
+
+| Campo       | Tipo        | Notas                                           |
+|-------------|-------------|-------------------------------------------------|
+| id          | uuid PK     |                                                 |
+| business_id | uuid FK     | → businesses.id                                 |
+| date        | date        |                                                 |
+| tags        | jsonb       | `{ clima, equipo, evento, personal, otros }`    |
+| created_at  | timestamptz | default now()                                   |
+
+---
+
+## Tabla: `metric_status`
+
+| Campo          | Tipo        | Notas                                       |
+|----------------|-------------|---------------------------------------------|
+| id             | uuid PK     |                                             |
+| business_id    | uuid FK     | → businesses.id                             |
+| date           | date        |                                             |
+| metric_name    | text        | ej. "daily_break_even"                      |
+| status         | text        | "dormant" \| "active" \| "blocked"          |
+| missing_fields | jsonb       | `["cash_count"]` o `[]`                     |
+| updated_at     | timestamptz | default now()                               |
+
+---
+
+## Tabla: `audit_results`
+
+Persiste outputs de todos los nodos del pipeline (S3, S4, N06, N07, N08, N09, Layer 3).
+
+| Campo           | Tipo         | Notas                                                              |
+|-----------------|--------------|--------------------------------------------------------------------|
+| id              | uuid PK      | gen_random_uuid()                                                  |
+| run_id          | uuid         | ID de la ejecución — `layer2_run_id` o `sequential_run_id`        |
+| business_id     | uuid FK      | → businesses.id                                                    |
+| date            | date         | Fecha auditada                                                     |
+| pipeline_layer  | text         | `"sequential"` \| `"parallel"` \| `"loop"`                        |
+| node_id         | text         | `"S3"` \| `"S4"` \| `"N06"` \| `"N07"` \| `"N08"` \| `"N09"` \| `"N11"` etc. |
+| module          | text         | Nombre descriptivo del módulo (ej. `"conciliacion_caja"`)          |
+| archetype       | text         | `"Operative Genius"` \| `"Product Purist"` \| `"Growth Hacker"`   |
+| raw_result      | jsonb        | JSON serializado del resultado del nodo                            |
+| copilot_phrase  | text         | Frase CEO-framed — `null` para nodos que no generan frases (N06)  |
+| node_status     | text         | `"success"` \| `"partial"` \| `"failed"` \| `"timeout"` \| `"error"` |
+| created_at      | timestamptz  | default now()                                                      |
+
+---
+
+## Tabla: `circuit_breaker_state`
+
+Estado del circuit breaker por nodo, negocio y fecha. Consultado por N06 antes del scatter.
+
+| Campo              | Tipo         | Notas                                                    |
+|--------------------|--------------|----------------------------------------------------------|
+| id                 | uuid PK      | gen_random_uuid()                                        |
+| business_id        | uuid FK      | → businesses.id                                          |
+| date               | date         | Fecha de evaluación                                      |
+| node_id            | text         | `"N07"` \| `"N08"` \| `"N09"`                           |
+| consecutive_failures | int        | Contador de fallos consecutivos — reset a 0 en success   |
+| circuit_status     | text         | `"closed"` (normal) \| `"open"` (degradado)              |
+| opened_at          | timestamptz  | Cuándo se abrió el circuit — `null` si `closed`          |
+| reset_by           | uuid         | UUID del usuario que hizo reset manual — `null` si automático |
+| updated_at         | timestamptz  | default now()                                            |
+
+Regla: `consecutive_failures >= 3` → `circuit_status: "open"` automáticamente.
+
+---
+
+## Tabla: `unit_conversions`
+
+| Campo     | Tipo    | Notas                    |
+|-----------|---------|--------------------------|
+| id        | uuid PK |                          |
+| from_unit | text    | ej. "kg"                 |
+| to_unit   | text    | ej. "g" (unidad base)    |
+| factor    | decimal | ej. 1000                 |
+
+Registros iniciales: `kg→g (×1000)`, `L→ml (×1000)`, `unidad→unidad (×1)`
+
+---
+
+## Índices
 
 ```sql
--- Búsquedas rápidas por campos dinámicos en metadata
-CREATE INDEX idx_transactions_metadata ON transactions USING GIN (metadata);
-
--- Búsquedas en extracted_data de documentos
-CREATE INDEX idx_documents_extracted ON documents USING GIN (extracted_data);
-
--- Consultas frecuentes por negocio + fecha
+CREATE INDEX idx_transactions_metadata     ON transactions USING GIN (metadata);
+CREATE INDEX idx_transactions_raw_metadata ON transactions USING GIN (raw_metadata);
+CREATE INDEX idx_documents_extracted       ON documents    USING GIN (extracted_data);
 CREATE INDEX idx_transactions_business_date ON transactions (business_id, transaction_date);
-
--- Filtrar documentos por estado OCR
-CREATE INDEX idx_documents_ocr_status ON documents (ocr_status);
+CREATE INDEX idx_transactions_expense_behavior ON transactions (business_id, expense_behavior);
+CREATE INDEX idx_documents_review          ON documents    (needs_human_review) WHERE needs_human_review = true;
+CREATE INDEX idx_daily_context_lookup      ON daily_context (business_id, date);
+CREATE INDEX idx_metric_status_lookup      ON metric_status (business_id, date, status);
+CREATE INDEX idx_recipes_business          ON recipes (business_id);
+CREATE INDEX idx_audit_results_run         ON audit_results (run_id);
+CREATE INDEX idx_audit_results_lookup      ON audit_results (business_id, date, pipeline_layer, node_id);
+CREATE INDEX idx_circuit_breaker_lookup    ON circuit_breaker_state (business_id, date, node_id);
+CREATE INDEX idx_circuit_breaker_open      ON circuit_breaker_state (node_id, circuit_status) WHERE circuit_status = 'open';
 ```
 
 ---
@@ -102,83 +225,22 @@ CREATE INDEX idx_documents_ocr_status ON documents (ocr_status);
 ```
 businesses (1) ──< documents (N)
 businesses (1) ──< transactions (N)
+businesses (1) ──< recipes (N)
+businesses (1) ──< daily_context (N)
+businesses (1) ──< metric_status (N)
+businesses (1) ──< pos_inputs (N)
+businesses (1) ──< cash_counts (N)
+businesses (1) ──< business_fixed_costs (N)
+businesses (1) ──< audit_results (N)
+businesses (1) ──< circuit_breaker_state (N)
 documents  (1) ──< transactions (N)
-```
-
----
-
-## Tabla: `unit_conversions`
-
-Catálogo de conversiones de unidades para el Motor de Cálculo.
-
-| Campo         | Tipo    | Notas                          |
-|---------------|---------|--------------------------------|
-| id            | uuid PK | gen_random_uuid()              |
-| from_unit     | text    | ej. "kg"                       |
-| to_unit       | text    | ej. "g" (unidad base)          |
-| factor        | decimal | ej. 1000                       |
-
-Registros iniciales: `kg→g (×1000)`, `L→ml (×1000)`, `unidad→unidad (×1)`
-
----
-
-## Tabla: `recipes` (BOM — Bill of Materials)
-
-Define la receta técnica de cada producto. Base para calcular mermas y costo teórico.
-
-| Campo        | Tipo    | Notas                                      |
-|--------------|---------|--------------------------------------------|
-| id           | uuid PK | gen_random_uuid()                          |
-| business_id  | uuid FK | → businesses.id                            |
-| product_name | text    | ej. "Café Latte"                           |
-| ingredients  | jsonb   | `{ "cafe_g": 18, "leche_ml": 250 }`        |
-| updated_at   | timestamptz | default now()                          |
-
----
-
-## Tabla: `daily_context`
-
-Contexto del día capturado via Tags Rápidos al cierre de carga.
-
-| Campo       | Tipo    | Notas                                           |
-|-------------|---------|-------------------------------------------------|
-| id          | uuid PK | gen_random_uuid()                               |
-| business_id | uuid FK | → businesses.id                                 |
-| date        | date    | Fecha del contexto                              |
-| tags        | jsonb   | `{ "clima": "lluvia", "equipo": "falla_maquina", "evento": null, "personal": null, "otros": "texto libre" }` |
-| created_at  | timestamptz | default now()                               |
-
----
-
-## Tabla: `metric_status`
-
-Estado de cada métrica por negocio y fecha. Gestionado por el Gatekeeper (S2).
-
-| Campo          | Tipo    | Notas                                       |
-|----------------|---------|---------------------------------------------|
-| id             | uuid PK | gen_random_uuid()                           |
-| business_id    | uuid FK | → businesses.id                             |
-| date           | date    | Fecha de evaluación                         |
-| metric_name    | text    | ej. "merma", "margen_utilidad"              |
-| status         | text    | "dormant" \| "active"                       |
-| missing_fields | jsonb   | `["compras_insumos", "recipe"]` o `[]`      |
-| updated_at     | timestamptz | default now()                           |
-
----
-
-## Índices adicionales
-
-```sql
-CREATE INDEX idx_daily_context_business_date ON daily_context (business_id, date);
-CREATE INDEX idx_metric_status_lookup ON metric_status (business_id, date, status);
-CREATE INDEX idx_recipes_business ON recipes (business_id);
 ```
 
 ---
 
 ## Notas de migración
 
-- La tabla `transactions` original (`001_init.sql`) queda deprecada → reemplazada por schema híbrido
-- La tabla `audit_results` original se mantiene sin cambios (outputs de agentes)
-- El campo `raw_json` de la tabla original equivale a `metadata` en el nuevo schema
-- Nuevas tablas: `recipes`, `daily_context`, `metric_status`
+- `001_init.sql`: tablas originales `transactions` y `audit_results` deprecadas
+- `002_hybrid_schema.sql`: schema completo con todas las tablas de este documento
+- Campos nuevos vs original: `tax_amount`, `supplier_name`, `concept`, `document_reference`, `expense_behavior`, `raw_metadata` en `transactions`
+- Nuevas tablas: `businesses`, `business_fixed_costs`, `documents`, `recipes`, `daily_context`, `metric_status`, `unit_conversions`, `pos_inputs`, `cash_counts`, `audit_results`, `circuit_breaker_state`

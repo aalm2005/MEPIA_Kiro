@@ -43,11 +43,13 @@
 | ID   | Nodo                    | Capa       | Archivo                    | Estado      |
 |------|-------------------------|------------|----------------------------|-------------|
 | S1   | Ingesta (5 inputs)      | Sequential | `s1_ingesta.md`            | ✅ req done  |
+| N02  | Facturas Proveedor Input| Sequential | `n02_facturas_input.md`    | ✅ req done  |
+| N03  | Human Input Endpoints   | Sequential | `n03_human_input_endpoints.md` | ✅ req done |
 | S2   | Stand-by / Gatekeeper   | Sequential | `s2_gatekeeper.md`         | ✅ req done  |
 | S3   | Motor de Cálculo        | Sequential | `s3_motor_calculo.md`      | ✅ req done  |
 | S4   | Nodo de Auditoría IA    | Sequential | `s4_auditoria_ia.md`       | ✅ req done  |
-| N05  | CEO Orchestrator        | CEO Layer  | `n05_ceo_orchestrator.md`  | pendiente   |
-| N06  | Orquestador ADK         | Parallel   | `n06_orchestrator_adk.md`  | pendiente   |
+| N05  | CEO Orchestrator        | CEO Layer  | `n05_ceo_orchestrator.md`  | ✅ req done |
+| N06  | Orquestador ADK         | Parallel   | `n06_orchestrator_adk.md`  | ✅ req done |
 | N07  | Conciliación Efectivo   | Parallel   | `n07_conciliacion.md`      | pendiente   |
 | N08  | Cumplimiento PLD        | Parallel   | `n08_pld.md`               | pendiente   |
 | N09  | Auditoría Gastos        | Parallel   | `n09_gastos.md`            | pendiente   |
@@ -60,27 +62,34 @@
 
 ## Contratos de datos clave
 
-- **POSIngestResult** → `s1_ingesta.md`
+- **POSIngestResult** → `n01_pos_pdf_input.md`
+- **FacturaIngestResult** → `n02_facturas_input.md`
 - **ContextTag** → `s1_ingesta.md`
 - **MetricStatus** (dormant/active) → `s2_gatekeeper.md`
 - **CalcResult** → `s3_motor_calculo.md`
 - **AuditInsight** → `s4_auditoria_ia.md`
+- **OrchestratorResult** → `n05_ceo_orchestrator.md`
 - **AgentResult** → `agents/base_agent.py`
 
 ## Archivos de implementación (referencia)
 
-| Spec          | Archivo de código             |
-|---------------|-------------------------------|
-| S3            | `agents/calc_engine.py`       |
-| S1 ingesta    | `api/main.py` + `app/api/upload/route.ts` |
-| S2 gatekeeper | `agents/gatekeeper.py`        |
-| S4 auditoría  | `agents/audit_node.py`        |
+| Spec          | Archivo de código                        |
+|---------------|------------------------------------------|
+| N01           | `api/main.py` + `app/api/upload/route.ts`|
+| N02           | `api/main.py` → `POST /ingest/factura`   |
+| N03           | `api/main.py` → `/transactions`, `/cash-counts`, `/onboarding` |
+| N05           | `api/main.py` → `POST /orchestrator/run`, `GET /orchestrator/status/{run_id}` |
+| N06           | `agents/parallel_orchestrator.py` → LangGraph StateGraph / LCEL RunnableParallel |
+| S2 gatekeeper | `agents/gatekeeper.py`                   |
+| S3            | `agents/calc_engine.py`                  |
+| S4 auditoría  | `agents/audit_node.py`                   |
 
 ## Schema de base de datos
 
 - **Arquitectura híbrida** → `db_schema.md`
-- Tablas: `businesses`, `documents`, `transactions`, `recipes`, `daily_context`, `metric_status`, `audit_results`
-- JSONB: `documents.extracted_data`, `transactions.metadata`, `daily_context.tags`
+- Tablas: `businesses`, `business_fixed_costs`, `documents`, `transactions`, `pos_inputs`, `cash_counts`, `recipes`, `daily_context`, `metric_status`, `unit_conversions`, `audit_results`
+- JSONB: `extracted_data`, `metadata`, `raw_metadata`, `tags`, `ingredients`, `missing_fields`
+- Campos clave nuevos: `expense_behavior` (FIXED/VARIABLE/CAPEX), `needs_human_review`, `ocr_confidence`, `raw_metadata`
 
 ## Reglas de carga de contexto
 

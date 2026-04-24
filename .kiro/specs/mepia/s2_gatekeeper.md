@@ -5,57 +5,60 @@
 
 ## Responsabilidad
 
-Script de validación Python que corre antes de cualquier cálculo. Determina qué métricas tienen suficientes datos para calcularse (`active`) y cuáles deben esperar (`dormant`).
+Valida que cada métrica tenga su set de datos completo antes de pasar a S3. Nunca asume datos — solo activa métricas con evidencia confirmada.
 
-## Lógica de estados
+## Triggers
 
-| Estado    | Significado                                      |
-|-----------|--------------------------------------------------|
-| `dormant` | Faltan datos requeridos. Métrica no se calcula.  |
-| `active`  | Set de datos completo. Métrica lista para S3.    |
+| Trigger         | Cuándo se dispara                                                        |
+|-----------------|--------------------------------------------------------------------------|
+| Event-driven    | INSERT o UPDATE en `transactions` o `pos_inputs`                         |
+| Schedule (CRON) | Cierre de día — evalúa métricas de resumen                               |
+| API manual      | `PATCH /transactions/{id}/expense-behavior` → re-evalúa `daily_break_even` |
+| API manual      | `POST /cash-counts` → re-evalúa `cash_reconciliation`                    |
 
-## Requisitos por métrica
+Todos los triggers de intervención humana llegan vía endpoints definidos en `n03_human_input_endpoints.md`. S2 no depende de UI.
 
-| Métrica              | Datos requeridos                          |
-|----------------------|-------------------------------------------|
-| Margen de utilidad   | Ventas + Costos operativos                |
-| Merma                | Ventas + Compras de insumos + Receta (BOM)|
-| Conciliación de caja | Ventas POS + Depósitos reportados         |
-| Costo por producto   | Receta (BOM) + Precios de insumos         |
-| Cumplimiento PLD     | Transacciones en efectivo > umbral        |
+## Catálogo de métricas (alineado 1:1 con S3)
+
+| Métrica                  | Datos requeridos                                                    |
+|--------------------------|---------------------------------------------------------------------|
+| `daily_break_even`       | `transactions` con `expense_behavior` confirmado al día de corte   |
+| `cash_reconciliation`    | Ventas POS (`pos_inputs`) + conteo manual de cajón (`cash_count`)  |
+| `operative_cost_margin`  | `transactions` categorizadas (insumos vs operativos)               |
+| `health_score`           | Cálculo exitoso de las 3 métricas anteriores                        |
+| `inventory_variance`     | BOM cargado (`recipes`) + recuento físico + ventas POS             |
 
 ## Flujo de validación
 
 ```
 Para cada métrica en el catálogo:
-  1. Consultar datos disponibles en transactions + documents + recipes
-  2. Evaluar si el set requerido está completo
-  3. Escribir resultado en metric_status:
-     { metric_name, business_id, date, status, missing_fields[] }
-  4. Retornar solo métricas con status = "active" al S3
+  1. Consultar datos en transactions + pos_inputs + recipes + cash_count
+  2. Verificar que needs_human_review = false en todos los documentos del día
+  3. Evaluar si el set requerido está completo
+  4. Escribir en metric_status: { metric_name, business_id, date, status, missing_fields[] }
+  5. Retornar active_metrics[] a S3
 ```
 
-## Output
+## Output — `GatekeeperResult`
 
-`GatekeeperResult`:
 ```
 business_id: UUID
 date: YYYY-MM-DD
-active_metrics: string[]       → pasan a S3
-dormant_metrics: [
-  { metric: string, missing: string[] }
-]
+active_metrics: string[]
+dormant_metrics: [{ metric: string, missing: string[] }]
+blocked_metrics: [{ metric: string, reason: "needs_human_review" }]
 ```
 
 ## Acceptance Criteria
 
-- WHEN hay ventas pero no facturas de insumos → métrica "Merma" en `dormant`, `missing: ["compras_insumos"]`
-- WHEN hay ventas + costos pero no receta → métrica "Costo por producto" en `dormant`, `missing: ["recipe"]`
-- WHEN set completo → métrica en `active`, pasa a S3
-- WHEN todas las métricas en `dormant` → S3 no se ejecuta, notificar al usuario qué datos faltan
-- WHEN `metric_status` ya existe para `business_id + date` → sobrescribir, no duplicar
+- WHEN documento con `needs_human_review: true` → métricas dependientes en `blocked`, no `dormant`
+- WHEN ventas POS sin conteo de cajón → `cash_reconciliation` en `dormant`, `missing: ["cash_count"]`
+- WHEN `expense_behavior` no confirmado en algún gasto → `daily_break_even` en `dormant`
+- WHEN `health_score` requerido pero alguna métrica base en `dormant` → `health_score` en `dormant`
+- WHEN todas las métricas en `dormant` o `blocked` → S3 no se ejecuta, notificar al usuario
+- WHEN `metric_status` ya existe para `business_id + date` → sobrescribir
 
 ## Edge Cases
 
-- Datos parciales del día (ej. solo turno matutino) → `dormant` hasta cierre de día o confirmación manual
-- Receta desactualizada (> 30 días sin editar) → `active` pero con warning en `missing_fields`
+- Receta desactualizada (> 30 días sin editar) → `active` con warning en `missing_fields`
+- Datos de solo turno matutino → `dormant` hasta cierre o confirmación manual del usuario
