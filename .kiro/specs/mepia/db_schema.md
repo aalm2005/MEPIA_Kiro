@@ -201,6 +201,30 @@ Registros iniciales: `kg→g (×1000)`, `L→ml (×1000)`, `unidad→unidad (×1
 
 ---
 
+## Tabla: `mepia_vector_store`
+
+Memoria semántica ("Brain") — exclusiva para LangChain RAG. NO es el Ledger del dashboard.
+`audit_results` sigue siendo la fuente de verdad estructurada para el frontend.
+
+> Dependencia de embedding: **OpenAI `text-embedding-3-small`** (1536 dimensiones, V1 oficial de MEPIA).
+> Si se cambia de modelo en el futuro, la columna `embedding` debe ser recreada con la nueva dimensión.
+
+| Campo       | Tipo            | Notas                                                        |
+|-------------|-----------------|--------------------------------------------------------------|
+| id          | uuid PK         | gen_random_uuid()                                            |
+| content     | text            | Texto del insight / reporte consolidado                      |
+| metadata    | jsonb           | `{ "business_id": UUID, "node_origin": "N12", "date": "YYYY-MM-DD" }` |
+| embedding   | vector(1536)    | Generado con text-embedding-3-small — NO cambiar dimensión sin migración |
+| created_at  | timestamptz     | default now()                                                |
+
+Escritura permitida: **solo N12 (Phrase Expander) o N13 (Quality Reviewer)** al final de Layer 3.
+Lectura permitida: todos los agentes vía `MemoryService.get_context()`.
+
+Migración: `supabase/migrations/003_vector_store.sql`
+Requiere: `CREATE EXTENSION IF NOT EXISTS vector;` en `001_init.sql`
+
+---
+
 ## Índices
 
 ```sql
@@ -217,6 +241,10 @@ CREATE INDEX idx_audit_results_run         ON audit_results (run_id);
 CREATE INDEX idx_audit_results_lookup      ON audit_results (business_id, date, pipeline_layer, node_id);
 CREATE INDEX idx_circuit_breaker_lookup    ON circuit_breaker_state (business_id, date, node_id);
 CREATE INDEX idx_circuit_breaker_open      ON circuit_breaker_state (node_id, circuit_status) WHERE circuit_status = 'open';
+-- Vector similarity search (cosine) — requiere pgvector extension
+CREATE INDEX idx_vector_store_embedding    ON mepia_vector_store USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX idx_vector_store_metadata     ON mepia_vector_store USING GIN (metadata);
+CREATE INDEX idx_vector_store_business     ON mepia_vector_store ((metadata->>'business_id'));
 ```
 
 ---
@@ -235,6 +263,7 @@ businesses (1) ──< business_fixed_costs (N)
 businesses (1) ──< audit_results (N)
 businesses (1) ──< circuit_breaker_state (N)
 documents  (1) ──< transactions (N)
+-- mepia_vector_store no tiene FK a businesses — business_id vive en metadata JSONB (flexibilidad RAG)
 ```
 
 ---
@@ -245,3 +274,4 @@ documents  (1) ──< transactions (N)
 - `002_hybrid_schema.sql`: schema completo con todas las tablas de este documento
 - Campos nuevos vs original: `tax_amount`, `supplier_name`, `concept`, `document_reference`, `expense_behavior`, `raw_metadata` en `transactions`
 - Nuevas tablas: `businesses`, `business_fixed_costs`, `documents`, `recipes`, `daily_context`, `metric_status`, `unit_conversions`, `pos_inputs`, `cash_counts`, `audit_results`, `circuit_breaker_state`
+- `003_vector_store.sql` (pendiente): habilita extensión `vector` + crea `mepia_vector_store` con embedding `vector(1536)` para `text-embedding-3-small`

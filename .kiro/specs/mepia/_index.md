@@ -58,7 +58,7 @@
 | N12  | Phrase Expander         | Loop       | `n12_phrase_expander.md`   | pendiente   |
 | N13  | Revisor de Calidad      | Loop       | `n13_revisor.md`           | pendiente   |
 | N14  | Informe Final           | Loop       | `n14_informe_final.md`     | pendiente   |
-| MEM  | Memory Layer            | Transversal| `mem_memory_layer.md`      | pendiente   |
+| MEM  | Memory Layer            | Transversal| `mem_memory_layer.md`      | ✅ req done |
 
 ## Contratos de datos clave
 
@@ -70,6 +70,7 @@
 - **AuditInsight** → `s4_auditoria_ia.md`
 - **OrchestratorResult** → `n05_ceo_orchestrator.md`
 - **AgentResult** → `agents/base_agent.py`
+- **MemoryChunk** → `mem_memory_layer.md`
 
 ## Archivos de implementación (referencia)
 
@@ -88,7 +89,7 @@
 ## Schema de base de datos
 
 - **Arquitectura híbrida** → `db_schema.md`
-- Tablas: `businesses`, `business_fixed_costs`, `documents`, `transactions`, `pos_inputs`, `cash_counts`, `recipes`, `daily_context`, `metric_status`, `unit_conversions`, `audit_results`
+- Tablas: `businesses`, `business_fixed_costs`, `documents`, `transactions`, `pos_inputs`, `cash_counts`, `recipes`, `daily_context`, `metric_status`, `unit_conversions`, `audit_results`, `circuit_breaker_state`, `mepia_vector_store`
 - JSONB: `extracted_data`, `metadata`, `raw_metadata`, `tags`, `ingredients`, `missing_fields`
 - Campos clave nuevos: `expense_behavior` (FIXED/VARIABLE/CAPEX), `needs_human_review`, `ocr_confidence`, `raw_metadata`
 

@@ -32,6 +32,9 @@
 | Memory_Reader        | Python module     | Lee últimos N días + deltas para Auditor Agent |
 | RAG_KB               | Vector store      | Entrevistas de auditores + NIIF |
 | Prompt Dictionary    | Python dict/YAML  | Templates de arquetipo para S4 — prohíbe frases genéricas |
+| Engram               | Binario Go (local)| Memoria de largo plazo (CAS). Requiere compilar el repo Engram y tener el binario en PATH. Configurado como servidor MCP en `.kiro/settings/mcp.json` con `{"command": "engram", "args": ["mcp"]}`. Expone herramientas `search` (read) y `store` (write). |
+| MemoryService        | Python (`utils/memory_service.py`) | Wrapper que abstrae pgvector + Engram. Expone `get_context()` (read, todos los agentes) y `store_memory()` (write, solo N12/N13). |
+| mepia_vector_store   | Supabase pgvector | Tabla de embeddings semánticos ("Brain"). Solo para LangChain RAG. Embedding: `text-embedding-3-small` 1536 dims. NO es el Ledger del dashboard. |
 
 ## Base de datos — Tablas
 
@@ -48,7 +51,7 @@
 | `metric_status`        | Estado `dormant`/`active`/`blocked` por métrica, negocio y fecha |
 | `unit_conversions`     | Catálogo de conversiones de unidades para el Motor de Cálculo |
 | `audit_results`        | Outputs de todos los nodos del pipeline con `pipeline_layer`, `node_id`, `node_status` |
-| `circuit_breaker_state`| Estado del circuit breaker por nodo, negocio y fecha — consultado por N06 antes del scatter |
+| `mepia_vector_store`   | Embeddings semánticos para LangChain RAG ("Brain"). Escritura solo desde N12/N13. |
 
 ## Campos JSONB clave
 
@@ -248,4 +251,15 @@ module: string
 raw_result: string
 copilot_phrase: string
 archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"
+```
+
+### MemoryChunk
+Payload que N12 o N13 envían a `MemoryService.store_memory()` al final de Layer 3.
+```
+business_id: UUID
+node_origin: "N12" | "N13"
+date: YYYY-MM-DD
+content: string          # texto del reporte consolidado / insight final
+archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"
+quality_approved: bool   # true si N13 validó el contenido
 ```
