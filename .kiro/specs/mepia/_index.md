@@ -89,7 +89,7 @@
 ## Schema de base de datos
 
 - **Arquitectura híbrida** → `db_schema.md`
-- Tablas: `businesses`, `business_fixed_costs`, `documents`, `transactions`, `pos_inputs`, `cash_counts`, `recipes`, `daily_context`, `metric_status`, `unit_conversions`, `audit_results`, `circuit_breaker_state`, `mepia_vector_store`
+- Tablas: `businesses`, `business_fixed_costs`, `documents`, `transactions`, `pos_inputs`, `cash_counts`, `recipes`, `daily_context`, `metric_status`, `unit_conversions`, `audit_results`, `circuit_breaker_state`, `mepia_memory`
 - JSONB: `extracted_data`, `metadata`, `raw_metadata`, `tags`, `ingredients`, `missing_fields`
 - Campos clave nuevos: `expense_behavior` (FIXED/VARIABLE/CAPEX), `needs_human_review`, `ocr_confidence`, `raw_metadata`
 
