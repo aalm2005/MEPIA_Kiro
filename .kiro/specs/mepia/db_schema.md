@@ -14,6 +14,7 @@
 | business_name    | text        | Nombre del restaurante             |
 | industry_sector  | text        | ej. "cafetería", "restaurante"     |
 | currency         | text        | ISO 4217, default "MXN"            |
+| opening_date     | date        | Fecha de apertura — requerido por N09 para ciclo de vida |
 | operating_hours  | jsonb       | `{ "open": "08:00", "close": "22:00" }` |
 | created_at       | timestamptz | default now()                      |
 

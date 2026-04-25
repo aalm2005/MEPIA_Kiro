@@ -52,7 +52,7 @@
 | N06  | Orquestador ADK         | Parallel   | `n06_orchestrator_adk.md`  | ✅ req done |
 | N07  | Conciliación Efectivo   | Parallel   | `n07_conciliacion.md`      | pendiente   |
 | N08  | Cumplimiento PLD        | Parallel   | `n08_pld.md`               | pendiente   |
-| N09  | Auditoría Gastos        | Parallel   | `n09_gastos.md`            | pendiente   |
+| N09  | Auditoría Gastos        | Parallel   | `n09_gastos.md`            | ✅ req done |
 | N10  | Auditor Agent           | Parallel   | `n10_auditor_agent.md`     | pendiente   |
 | N11  | Consultor Especialista  | Loop       | `n11_consultor.md`         | pendiente   |
 | N12  | Phrase Expander         | Loop       | `n12_phrase_expander.md`   | pendiente   |
@@ -80,6 +80,7 @@
 | N03           | `api/main.py` → `/transactions`, `/cash-counts`, `/onboarding` |
 | N05           | `api/main.py` → `POST /orchestrator/run`, `GET /orchestrator/status/{run_id}` |
 | N06           | `agents/parallel_orchestrator.py` → LangGraph StateGraph / LCEL RunnableParallel |
+| N09           | `agents/business_health.py`                              |
 | S2 gatekeeper | `agents/gatekeeper.py`                   |
 | S3            | `agents/calc_engine.py`                  |
 | S4 auditoría  | `agents/audit_node.py`                   |

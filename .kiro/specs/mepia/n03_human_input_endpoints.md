@@ -286,6 +286,7 @@ class OnboardingPayload(BaseModel):
     business_name: str = Field(min_length=1, max_length=255)
     industry_sector: str = Field(min_length=1, max_length=100)
     currency: str = Field(default="MXN", pattern=r"^[A-Z]{3}$")  # ISO 4217
+    opening_date: date                                             # requerido para ciclo de vida N09
     operating_hours: OperatingHours
     fixed_costs: list[FixedCostItem] = Field(min_length=1)        # al menos 1 gasto fijo
 ```
