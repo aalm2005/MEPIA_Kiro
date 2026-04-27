@@ -1,48 +1,47 @@
-# S4 — Nodo de Auditoría (IA)
+# S4 — Forensic CFO (Nodo de Auditoría IA)
 
-**Capa:** Sequential | **Anterior:** S3 Motor de Cálculo | **Siguiente:** Layer 2 Parallel
-**Responsabilidad:** Interpretar números crudos ponderando contexto. Genera insights CEO-framed.
+**Capa:** Sequential | **Anterior:** S3 Motor de Cálculo | **Siguiente:** N05 CEO Orchestrator
+**Responsabilidad:** Diagnóstico forense de anomalías financieras. Sin recomendaciones. Sin arquetipos.
 
 ## Separación de responsabilidades
 
 ```
 S3 (Python)  →  QUÉ pasó (número puro)
-S4 (IA)      →  POR QUÉ pasó + QUÉ hacer (interpretación contextual)
+S4 (IA)      →  DÓNDE está la fuga + CUÁL es la evidencia (diagnóstico forense)
+N05 (CEO)    →  POR QUÉ importa + QUÉ hacer (síntesis estratégica con arquetipo)
 ```
 
-## Gestión de Arquetipos
+S4 nunca reduce la severidad de una anomalía por contexto externo.
+Si hay una fuga del 10%, reporta `risk_level: "high"` y adjunta el tag de `daily_context`
+bajo `observed_causality`. Será N05 quien decida cómo redactar la recomendación.
 
-El arquetipo se pasa como parámetro en el request al endpoint de auditoría. No hay sesión ni estado en servidor — cada llamada es stateless. S4 inyecta los datos de S3 en la plantilla del arquetipo recibido.
+---
 
-### Diccionario de Prompt Templates
+## Las 3 preguntas forenses (criterios de completitud del output)
 
-Cada template tiene instrucciones base que **prohíben resúmenes genéricos** y obligan a frases directas y pragmáticas.
+El `ForensicReport` de S4 debe responder obligatoriamente estas tres preguntas.
+Si no puede responder alguna por falta de datos, el campo correspondiente es `null`
+con una nota en `evidence_sources`.
 
-| Arquetipo          | Enfoque del prompt                                                        |
-|--------------------|---------------------------------------------------------------------------|
-| Operative Genius   | Traduce métricas en alertas sobre cuellos de botella y fugas de capital en procesos |
-| Product Purist     | Traduce control de costos en impacto directo a la calidad del producto/experiencia |
-| Growth Hacker      | Traduce métricas en oportunidades de escala, recompra y crecimiento       |
+| # | Pregunta | Campo en output |
+|---|----------|-----------------|
+| 1 | ¿Dónde se está fugando el margen exactamente? | `anomalies` con `type: "margin_leak"` |
+| 2 | ¿Qué inconsistencias existen entre flujo de caja y operación? | `anomalies` con `type: "source_discrepancy"` |
+| 3 | ¿Cuál es el límite matemático de producción detectado en la data? | `anomalies` con `type: "operational_ceiling"` |
 
-### Ejemplo de instrucción base (Operative Genius)
-```
-Eres un auditor operativo. Dado un resultado numérico y su contexto:
-- Identifica el cuello de botella específico
-- Cuantifica la fuga de capital en MXN
-- Propón una acción correctiva con frecuencia definida
-- PROHIBIDO: frases genéricas como "considera revisar" o "podría mejorar"
-```
+---
 
 ## Input
 
 ```
-calc_results: CalcResult[]       // array de resultados de S3
-context: daily_context.tags      // JSONB del día
-archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"
+calc_results: CalcResult[]         // array de resultados de S3
+daily_context: DailyContextTags    // tags del día — solo para observed_causality, no para ponderar
+business_id: UUID
+date: date
 ```
 
-El campo `archetype` es obligatorio en el request body. Si no se envía → default `"Operative Genius"`.
-No se persiste en sesión — el cliente es responsable de enviarlo en cada request.
+S4 recupera internamente `CalcResult[]` y `daily_context.tags` usando `business_id + date`.
+El cliente no necesita enviarlos.
 
 ### Endpoint
 
@@ -54,83 +53,113 @@ No se persiste en sesión — el cliente es responsable de enviarlo en cada requ
 class AuditRunPayload(BaseModel):
     business_id: UUID
     date: date
-    archetype: Literal[
-        "Operative Genius", "Product Purist", "Growth Hacker"
-    ] = "Operative Genius"
 ```
 
-S4 recupera internamente los `CalcResult[]` de S3 y los `daily_context.tags` usando `business_id + date`. El cliente no necesita enviarlos.
+> Nota: `archetype` eliminado del request de S4. El arquetipo es responsabilidad de N05.
 
-**Response 200:**
-```json
-{
-  "business_id": "uuid-v4",
-  "date": "2024-01-15",
-  "archetype": "Operative Genius",
-  "insights": [
-    {
-      "module": "conciliacion_caja",
-      "raw_result": "variance: -320 MXN",
-      "copilot_phrase": "...",
-      "alert_level": "critical",
-      "recommended_action": "Revisión de caja inmediata",
-      "context_weight": "normal"
-    }
-  ]
-}
-```
+**Response 200:** `ForensicReport` (ver contrato abajo)
 
 **Códigos de error:**
 
-| HTTP | Condición                                              |
-|------|--------------------------------------------------------|
-| 404  | `business_id` no existe                                |
-| 422  | `archetype` con valor inválido                         |
+| HTTP | Condición |
+|------|-----------|
+| 404  | `business_id` no existe |
 | 409  | No hay métricas `active` para `business_id + date` — S3 no ha corrido |
 
-## Output — `AuditInsight`
+---
+
+## Output — `ForensicReport`
+
+Contrato de salida estricto de S4. No contiene frases CEO-framed ni recomendaciones.
 
 ```
-module: string
-raw_result: string               // número crudo de S3
-copilot_phrase: string           // frase CEO-framed, específica y accionable
-archetype: CEO Archetype
-alert_level: "info" | "warning" | "critical"
-recommended_action: string       // acción específica, nunca null en warning/critical
-context_weight: "reducido" | "normal" | "amplificado"
+business_id: UUID
+date: date
+risk_level: "low" | "medium" | "high"   // nivel global del reporte
+anomalies: AnomalyItem[]                 // lista de anomalías detectadas
+evidence_sources: string[]               // fuentes comparadas: ["POS", "facturas", "cash_count"]
+observed_causality: DailyContextTags | null  // tags del día adjuntos sin interpretación
+generated_at: datetime
 ```
 
-## Lógica de ponderación
-
-| Métrica baja + Contexto           | alert_level | context_weight |
-|-----------------------------------|-------------|----------------|
-| Ventas ↓ + `lluvia`               | warning     | reducido       |
-| Ventas ↓ + `falla_maquina`        | warning     | reducido       |
-| Ventas ↓ + sin tag relevante      | critical    | normal         |
-| Margen ↓ + `promocion`            | info        | reducido       |
-| Margen ↓ + sin tag relevante      | critical    | amplificado    |
-| Conciliación negativa > 1%        | critical    | normal (siempre, sin reducción por contexto) |
-
-## Ejemplo de salida (Operative Genius)
+### `AnomalyItem`
 
 ```
-S3 detecta:  margen_utilidad.delta = -10%, conciliacion_caja.variance = -$320
+anomaly_id: UUID
+type: "margin_leak" | "source_discrepancy" | "operational_ceiling" | "cost_spike" | "other"
+description: string          // descripción técnica precisa, sin lenguaje CEO
+severity: "low" | "medium" | "high"
+quantified_impact: string    // ej. "-320 MXN", "-10% margen", "techo: 180 unidades/día"
+data_points: string[]        // evidencia numérica específica de S3 que sustenta la anomalía
+metric_origin: string        // nombre de la CalcResult que originó la anomalía
+```
+
+### Reglas de `risk_level` global
+
+| Condición | `risk_level` |
+|-----------|-------------|
+| ≥ 1 anomalía con `severity: "high"` | `"high"` |
+| Solo anomalías `"medium"` | `"medium"` |
+| Solo anomalías `"low"` o sin anomalías | `"low"` |
+
+### Regla de `observed_causality`
+
+S4 adjunta `daily_context.tags` tal cual en `observed_causality` — sin interpretación.
+N05 decide si esa causalidad justifica suavizar la recomendación al dueño.
+S4 **nunca** modifica `severity` basándose en el contexto.
+
+---
+
+## Ejemplo de output (Forensic CFO)
+
+```
+S3 detecta:  margen_utilidad.delta = -10%, conciliacion_caja.variance = -320 MXN
 Contexto:    equipo = "falla_maquina", otros = "Espresso fuera 3h"
 
-copilot_phrase: "Tu margen bajó 10% por inactividad de la máquina de espresso
-                 (3h = costo de oportunidad estimado $480). Adicionalmente,
-                 hay una varianza de -$320 en caja que requiere revisión
-                 independiente del contexto. Acción: mantenimiento preventivo
-                 cada 90 días + auditoría de caja hoy."
-alert_level: "critical"
-recommended_action: "Mantenimiento preventivo + revisión de caja inmediata"
+ForensicReport:
+  risk_level: "high"
+  anomalies: [
+    {
+      type: "margin_leak",
+      severity: "high",
+      description: "Margen de utilidad cayó 10 puntos porcentuales vs período anterior",
+      quantified_impact: "-10% margen (~$1,200 MXN estimado)",
+      data_points: ["margen_utilidad.value: 8%", "margen_utilidad.delta: -10%"],
+      metric_origin: "margen_utilidad"
+    },
+    {
+      type: "source_discrepancy",
+      severity: "high",
+      description: "Varianza negativa entre ventas POS y efectivo contado en cajón",
+      quantified_impact: "-320 MXN",
+      data_points: ["conciliacion_caja.variance: -320", "pos_inputs.cash_sales: 4820"],
+      metric_origin: "conciliacion_caja"
+    }
+  ]
+  evidence_sources: ["POS", "cash_count"]
+  observed_causality: { equipo: "falla_maquina", otros: "Espresso fuera 3h" }
 ```
+
+---
 
 ## Acceptance Criteria
 
-- WHEN `archetype` ausente en request → usar `"Operative Genius"` como default
-- WHEN `conciliacion_caja` crítica → `alert_level: "critical"` sin importar contexto
-- WHEN múltiples métricas críticas → consolidar en una sola frase coherente, no lista
-- WHEN `recommended_action` en warning/critical → debe incluir frecuencia o plazo específico
-- WHEN tags vacíos → tratar como contexto "Normal", no reducir peso de alertas
-- WHEN no hay métricas `active` para `business_id + date` → HTTP 409, no ejecutar S4
+- WHEN S3 no ha corrido para `business_id + date` → HTTP 409, no ejecutar S4
+- WHEN hay anomalía de tipo `source_discrepancy` → `severity` siempre `"high"`, sin excepción
+- WHEN `daily_context` existe → adjuntar en `observed_causality` sin modificar ningún `severity`
+- WHEN `daily_context` no existe → `observed_causality: null`, severidades sin cambio
+- WHEN múltiples anomalías → cada una en su propio `AnomalyItem`, no consolidadas en texto
+- WHEN no hay anomalías detectadas → `anomalies: []`, `risk_level: "low"`
+- WHEN `quantified_impact` no puede calcularse → string descriptivo, nunca `null`
+
+---
+
+## Correctness Properties (PBT)
+
+| ID | Propiedad |
+|----|-----------|
+| P1 | `observed_causality` nunca modifica `severity` de ningún `AnomalyItem` |
+| P2 | `risk_level: "high"` ↔ existe al menos 1 `AnomalyItem` con `severity: "high"` |
+| P3 | `source_discrepancy` siempre tiene `severity: "high"` independientemente del contexto |
+| P4 | `ForensicReport` sin `archetype` — campo inexistente en el output |
+| P5 | `evidence_sources` contiene solo fuentes que realmente se compararon en esa ejecución |

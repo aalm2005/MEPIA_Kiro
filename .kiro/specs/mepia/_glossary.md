@@ -238,12 +238,38 @@ status: "ok"|"warning"|"critical"|"incomplete_data"|"unit_mismatch"
 context: string
 ```
 
-### AuditInsight (extiende AgentResult)
+### ForensicReport (output de S4)
 ```
-module, raw_result, copilot_phrase, archetype   // base
+business_id: UUID
+date: date
+risk_level: "low" | "medium" | "high"
+anomalies: AnomalyItem[]
+evidence_sources: string[]           # fuentes comparadas: ["POS", "facturas", "cash_count"]
+observed_causality: DailyContextTags | null  # tags del día adjuntos sin interpretación
+generated_at: datetime
+```
+
+### AnomalyItem
+```
+anomaly_id: UUID
+type: "margin_leak" | "source_discrepancy" | "operational_ceiling" | "cost_spike" | "other"
+description: string          # descripción técnica precisa, sin lenguaje CEO
+severity: "low" | "medium" | "high"
+quantified_impact: string    # ej. "-320 MXN", "-10% margen", "techo: 180 unidades/día"
+data_points: string[]        # evidencia numérica de S3 que sustenta la anomalía
+metric_origin: string        # nombre de la CalcResult que originó la anomalía
+```
+
+### AuditInsight (generado por N05 — output final CEO-framed)
+```
+module: string
+raw_result: string               // número crudo de S3
+copilot_phrase: string           // frase CEO-framed generada por N05 con arquetipo
+archetype: CEO Archetype
 alert_level: "info" | "warning" | "critical"
-recommended_action: string
+recommended_action: string       // acción específica con frecuencia o plazo
 context_weight: "reducido" | "normal" | "amplificado"
+anomaly_ref: UUID                // anomaly_id del AnomalyItem origen en ForensicReport
 ```
 
 ### AgentResult (base)

@@ -27,11 +27,15 @@
   └──────────────────┬──────────────────────────────────────┘
                      ↓
   ┌─────────────────────────────────────────────────────────┐
-  │ S4: NODO DE AUDITORÍA (IA)                              │
-  │   Input: resultados Python + tags de contexto           │
-  │   Pondera alertas según contexto                        │
-  │   Output: insight CEO-framed con acción recomendada     │
+  │ S4: FORENSIC CFO (IA)                                   │
+  │   Input: CalcResult[] + daily_context tags              │
+  │   Diagnóstico forense: fugas, discrepancias, techos     │
+  │   Output: ForensicReport — sin recomendaciones          │
   └─────────────────────────────────────────────────────────┘
+        ↓
+[CEO Orchestrator Layer — N05]
+  Recibe ForensicReport + memoria RAG
+  Aplica arquetipo CEO → genera AuditInsight[] con copilot_phrase
         ↓
 [Layer 2: Parallel]   Orquestador → Conciliación | PLD | Gastos | Auditor Agent
         ↓
@@ -47,8 +51,8 @@
 | N03  | Human Input Endpoints   | Sequential | `n03_human_input_endpoints.md` | ✅ req done |
 | S2   | Stand-by / Gatekeeper   | Sequential | `s2_gatekeeper.md`         | ✅ req done  |
 | S3   | Motor de Cálculo        | Sequential | `s3_motor_calculo.md`      | ✅ req done  |
-| S4   | Nodo de Auditoría IA    | Sequential | `s4_auditoria_ia.md`       | ✅ req done  |
-| N05  | CEO Orchestrator        | CEO Layer  | `n05_ceo_orchestrator.md`  | ✅ req done |
+| S4   | Forensic CFO (Auditoría IA) | Sequential | `s4_auditoria_ia.md`       | ✅ req done  |
+| N05  | CEO Orchestrator (Síntesis Estratégica) | CEO Layer  | `n05_ceo_orchestrator.md`  | ✅ req done |
 | N06  | Orquestador ADK         | Parallel   | `n06_orchestrator_adk.md`  | ✅ req done |
 | N07  | Conciliación Efectivo   | Parallel   | `n07_conciliacion.md`      | pendiente   |
 | N08  | Cumplimiento PLD        | Parallel   | `n08_pld.md`               | pendiente   |
@@ -67,7 +71,8 @@
 - **ContextTag** → `s1_ingesta.md`
 - **MetricStatus** (dormant/active) → `s2_gatekeeper.md`
 - **CalcResult** → `s3_motor_calculo.md`
-- **AuditInsight** → `s4_auditoria_ia.md`
+- **ForensicReport** → `s4_auditoria_ia.md`
+- **AuditInsight** → `n05_ceo_orchestrator.md` (generado por N05, no por S4)
 - **OrchestratorResult** → `n05_ceo_orchestrator.md`
 - **AgentResult** → `agents/base_agent.py`
 - **MemoryChunk** → `mem_memory_layer.md`

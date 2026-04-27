@@ -1,6 +1,6 @@
-# N05 — CEO Orchestrator
+# N05 — CEO Orchestrator (Motor de Síntesis Estratégica)
 
-**Capa:** CEO Layer | **Anterior:** S4 Auditoría IA | **Siguiente:** N06 Orquestador ADK (Layer 2)
+**Capa:** CEO Layer | **Anterior:** S4 Forensic CFO | **Siguiente:** N06 Orquestador ADK (Layer 2)
 **Archivo de implementación:** `agents/ceo_orchestrator.py`
 **Enfoque:** API-First / Headless — stateless, sin dependencias de UI
 
@@ -8,31 +8,68 @@
 
 ## Responsabilidad
 
-Punto de entrada único del sistema. Recibe la solicitud de auditoría del cliente, coordina
-la ejecución del pipeline Sequential (S1→S4) y decide si escalar a Layer 2 (Parallel).
+Dos roles en uno:
+
+1. **Orquestador del pipeline** — coordina S3 → S4 → síntesis y decide si escalar a Layer 2
+2. **Motor de Síntesis Estratégica** — toma el `ForensicReport` de S4 + memoria RAG y genera
+   el `AuditInsight` final con `copilot_phrase` y `recommended_action` filtrados por arquetipo CEO
 
 ```
 Cliente
   │
   └─ POST /orchestrator/run
         │
-        ├─ Verificar prerequisitos (S1 completo, S2 active_metrics > 0)
+        ├─ Verificar prerequisitos
         ├─ Ejecutar S3 → CalcResult[]
-        ├─ Ejecutar S4 → AuditInsight[]
+        ├─ Ejecutar S4 → ForensicReport
+        ├─ Leer memoria RAG (MemoryService.get_context)
+        ├─ Sintetizar ForensicReport + contexto → AuditInsight[] (con arquetipo)
         ├─ Evaluar si escalar a Layer 2
         └─ Retornar OrchestratorResult
 ```
 
-No ejecuta lógica de negocio — delega a cada nodo y agrega resultados.
+---
+
+## Gestión de Arquetipos (heredado de S4)
+
+N05 es ahora el único nodo que aplica el filtro de arquetipo CEO.
+Inyecta el `CEO Cognitive Frame` al sintetizar el `ForensicReport` en `AuditInsight`.
+
+### Diccionario de Prompt Templates
+
+Cada template tiene instrucciones base que **prohíben resúmenes genéricos** y obligan a
+frases directas y pragmáticas. El input siempre es el `ForensicReport` completo + `observed_causality`.
+
+| Arquetipo        | Enfoque del prompt de síntesis |
+|------------------|-------------------------------|
+| Operative Genius | Traduce anomalías en alertas sobre cuellos de botella y fugas de capital en procesos |
+| Product Purist   | Traduce anomalías en impacto directo a la calidad del producto/experiencia |
+| Growth Hacker    | Traduce anomalías en oportunidades de escala, recompra y crecimiento |
+
+### Uso de `observed_causality`
+
+N05 lee el campo `observed_causality` del `ForensicReport` para decidir el tono de la
+`copilot_phrase`. Si hay causalidad contextual (ej. `falla_maquina`), N05 puede redactar
+una recomendación más comprensiva — pero **nunca omite la anomalía**.
+
+```
+Ejemplo:
+  ForensicReport.anomalies[0].severity = "high"  (margen -10%)
+  ForensicReport.observed_causality = { equipo: "falla_maquina" }
+
+  AuditInsight generado por N05:
+    alert_level: "critical"
+    copilot_phrase: "Tu margen bajó 10% por la falla de la máquina de espresso.
+                     El impacto es real (~$1,200 MXN). Acción: mantenimiento
+                     preventivo cada 90 días para evitar que esto se repita."
+    recommended_action: "Mantenimiento preventivo + revisión de caja inmediata"
+```
 
 ---
 
 ## Endpoint principal
 
 ### `POST /orchestrator/run`
-
-Dispara el pipeline completo desde S3 hasta S4 para un negocio y fecha dados.
-S1 y S2 deben haberse ejecutado previamente (ingesta + gatekeeper).
 
 **Request body — `OrchestratorRunPayload`:**
 
@@ -43,7 +80,7 @@ class OrchestratorRunPayload(BaseModel):
     archetype: Literal[
         "Operative Genius", "Product Purist", "Growth Hacker"
     ] = "Operative Genius"
-    escalate_to_parallel: bool = True   # si False, solo corre Sequential
+    escalate_to_parallel: bool = True
 ```
 
 **Response 200:**
@@ -53,16 +90,17 @@ class OrchestratorRunPayload(BaseModel):
   "business_id": "uuid-v4",
   "date": "2024-01-15",
   "archetype": "Operative Genius",
-  "pipeline_status": "completed" | "partial" | "escalated",
+  "pipeline_status": "completed" | "partial" | "escalated" | "failed",
   "sequential_results": {
     "active_metrics": ["cash_reconciliation", "daily_break_even"],
     "calc_results": [ /* CalcResult[] */ ],
-    "audit_insights": [ /* AuditInsight[] */ ]
+    "forensic_report": { /* ForensicReport de S4 */ },
+    "audit_insights": [ /* AuditInsight[] generados por N05 */ ]
   },
   "escalation": {
     "triggered": true,
     "reason": "critical_alerts_detected",
-    "layer2_run_id": "uuid-v4"   // null si escalate_to_parallel: false
+    "layer2_run_id": "uuid-v4"
   },
   "dormant_metrics": [
     { "metric": "inventory_variance", "missing": ["recipes"] }
@@ -73,19 +111,17 @@ class OrchestratorRunPayload(BaseModel):
 
 **Códigos de error:**
 
-| HTTP | Condición                                                              |
-|------|------------------------------------------------------------------------|
-| 404  | `business_id` no existe                                                |
-| 409  | S2 no ha corrido o todas las métricas en `dormant`/`blocked` — pipeline no puede iniciar |
-| 422  | `archetype` inválido                                                   |
-| 422  | `date` en el futuro                                                    |
-| 503  | Fallo interno en S3 o S4 — incluye detalle del nodo que falló          |
+| HTTP | Condición |
+|------|-----------|
+| 404  | `business_id` no existe |
+| 409  | S2 no ha corrido o todas las métricas en `dormant`/`blocked` |
+| 422  | `archetype` inválido |
+| 422  | `date` en el futuro |
+| 503  | Fallo interno en S3 o S4 — incluye detalle del nodo que falló |
 
 ---
 
 ### `GET /orchestrator/status/{run_id}`
-
-Consulta el estado de una ejecución en curso o completada.
 
 **Response 200:**
 ```json
@@ -94,8 +130,8 @@ Consulta el estado de una ejecución en curso o completada.
   "business_id": "uuid-v4",
   "date": "2024-01-15",
   "pipeline_status": "running" | "completed" | "partial" | "failed",
-  "current_node": "S4",
-  "completed_at": "2024-01-15T22:10:00Z"   // null si aún en curso
+  "current_node": "N05_synthesis",
+  "completed_at": "2024-01-15T22:10:00Z"
 }
 ```
 
@@ -103,49 +139,62 @@ Consulta el estado de una ejecución en curso o completada.
 
 ## Lógica de escalación a Layer 2
 
-El orquestador evalúa los `AuditInsight[]` de S4 y decide si escalar automáticamente.
+N05 evalúa el `ForensicReport.risk_level` de S4 para decidir si escalar.
 
-| Condición                                          | Acción                          |
-|----------------------------------------------------|---------------------------------|
-| ≥ 1 insight con `alert_level: "critical"`          | Escalar a Layer 2 automáticamente |
-| Todos los insights en `"info"` o `"warning"`       | No escalar (solo Sequential)    |
-| `escalate_to_parallel: false` en request           | Nunca escalar, ignorar alertas  |
+| Condición | Acción |
+|-----------|--------|
+| `risk_level: "high"` | Escalar a Layer 2 automáticamente |
+| `risk_level: "medium"` o `"low"` | No escalar (solo Sequential) |
+| `escalate_to_parallel: false` en request | Nunca escalar |
 
 Cuando escala: dispara `POST /layer2/run` internamente con el `run_id` del Sequential como contexto.
 
-Si N06 retorna HTTP 503 (`gather_status: "failed"`):
+Si N06 retorna HTTP 503:
 - Actualizar `pipeline_status` a `"failed"` en `OrchestratorResult`
 - Persistir error en `audit_results` con `module: "N06"` y detalle del fallo
-- No reintentar automáticamente — retornar HTTP 503 al cliente con detalle
-- El cliente puede reintentar vía `POST /orchestrator/run` en una nueva sesión
+- No reintentar automáticamente — retornar HTTP 503 al cliente
 
 ---
 
-## Modelo de datos — `OrchestratorResult`
+## Flujo de síntesis (N05 como CEO)
 
-```python
-class EscalationInfo(BaseModel):
-    triggered: bool
-    reason: Optional[str]           # "critical_alerts_detected" | "manual_override" | null
-    layer2_run_id: Optional[UUID]
+```
+1. Recibe ForensicReport de S4
+2. Llama MemoryService.get_context(query=anomalías_detectadas, business_id)
+3. Para cada AnomalyItem en ForensicReport.anomalies:
+   a. Aplica CEO Cognitive Frame del arquetipo recibido
+   b. Lee observed_causality para ajustar tono (no severidad)
+   c. Genera AuditInsight con copilot_phrase + recommended_action
+4. Determina alert_level de cada AuditInsight desde severity del AnomalyItem:
+   "high" → "critical" | "medium" → "warning" | "low" → "info"
+```
 
-class OrchestratorResult(BaseModel):
-    run_id: UUID
-    business_id: UUID
-    date: date
-    archetype: Literal["Operative Genius", "Product Purist", "Growth Hacker"]
-    pipeline_status: Literal["completed", "partial", "escalated", "failed"]
-    sequential_results: dict        # { active_metrics, calc_results, audit_insights }
-    escalation: EscalationInfo
-    dormant_metrics: list[dict]
-    completed_at: datetime
+### Mapeo `AnomalyItem.severity` → `AuditInsight.alert_level`
+
+| `severity` (S4) | `alert_level` (N05) |
+|-----------------|---------------------|
+| `"high"`        | `"critical"`        |
+| `"medium"`      | `"warning"`         |
+| `"low"`         | `"info"`            |
+
+---
+
+## Output — `AuditInsight` (generado por N05)
+
+```
+module: string                   // nombre del módulo auditado
+raw_result: string               // número crudo de S3 (pasado desde ForensicReport)
+copilot_phrase: string           // frase CEO-framed, específica y accionable
+archetype: CEO Archetype         // arquetipo aplicado
+alert_level: "info"|"warning"|"critical"
+recommended_action: string       // acción específica con frecuencia o plazo
+context_weight: "reducido"|"normal"|"amplificado"  // tono ajustado por observed_causality
+anomaly_ref: UUID                // anomaly_id del AnomalyItem origen en ForensicReport
 ```
 
 ---
 
 ## Prerequisitos de ejecución
-
-Antes de correr S3, el orquestador verifica:
 
 ```
 1. business_id existe en businesses
@@ -153,33 +202,31 @@ Antes de correr S3, el orquestador verifica:
 3. No hay documentos con needs_human_review = true sin resolver para esa fecha
 ```
 
-Si alguna condición falla → HTTP 409 con detalle de qué falta.
-
 ---
 
 ## Persistencia
 
 Cada ejecución se registra en `audit_results`:
 
-| Campo           | Valor                                      |
-|-----------------|--------------------------------------------|
-| `run_id`        | UUID de la ejecución                       |
-| `business_id`   | FK → businesses                            |
-| `date`          | Fecha auditada                             |
-| `archetype`     | Arquetipo usado                            |
-| `module`        | Nombre del nodo (S3, S4, etc.)             |
-| `raw_result`    | JSON serializado del resultado             |
-| `copilot_phrase`| Frase del insight de S4                    |
+| Campo           | Valor |
+|-----------------|-------|
+| `run_id`        | UUID de la ejecución |
+| `business_id`   | FK → businesses |
+| `date`          | Fecha auditada |
+| `node_id`       | `"N05"` para la síntesis CEO |
+| `archetype`     | Arquetipo usado |
+| `raw_result`    | `ForensicReport` serializado (de S4) |
+| `copilot_phrase`| Frase generada por N05 |
 
 ---
 
 ## Acceptance Criteria
 
-- WHEN S2 no ha corrido para `business_id + date` → HTTP 409, no ejecutar pipeline
-- WHEN todas las métricas en `dormant` → HTTP 409 con lista de `missing_fields`
-- WHEN S3 falla en una métrica → continuar con las demás, incluir error en `calc_results`
-- WHEN S4 produce ≥ 1 `critical` y `escalate_to_parallel: true` → `escalation.triggered: true`
+- WHEN S2 no ha corrido → HTTP 409, no ejecutar pipeline
+- WHEN `ForensicReport.risk_level: "high"` y `escalate_to_parallel: true` → `escalation.triggered: true`
 - WHEN `escalate_to_parallel: false` → `escalation.triggered: false` siempre
+- WHEN `AnomalyItem.severity: "high"` → `AuditInsight.alert_level: "critical"` siempre
+- WHEN `observed_causality` presente → N05 puede ajustar tono de `copilot_phrase`, nunca `alert_level`
 - WHEN pipeline completa sin errores → `pipeline_status: "completed"`
 - WHEN pipeline completa con métricas `dormant` → `pipeline_status: "partial"`
 - WHEN escaló a Layer 2 → `pipeline_status: "escalated"`, `layer2_run_id` no nulo
@@ -193,6 +240,7 @@ Cada ejecución se registra en `audit_results`:
 | P1 | `run_id`, `pipeline_status`, `completed_at` siempre no nulos en `OrchestratorResult` |
 | P2 | `escalation.triggered: true` → `layer2_run_id` no nulo |
 | P3 | `escalation.triggered: false` → `layer2_run_id` es null siempre |
-| P4 | `escalate_to_parallel: false` en request → `escalation.triggered` siempre false |
-| P5 | S2 sin métricas `active` → HTTP 409, ningún nodo S3/S4 ejecutado |
-| P6 | Fallo en S3 para métrica X → otras métricas siguen calculándose (no falla total) |
+| P4 | `escalate_to_parallel: false` → `escalation.triggered` siempre false |
+| P5 | S2 sin métricas `active` → HTTP 409, ningún nodo S3/S4/N05 ejecutado |
+| P6 | `AnomalyItem.severity: "high"` → `AuditInsight.alert_level: "critical"` sin excepción |
+| P7 | `observed_causality` presente → `alert_level` no cambia, solo `context_weight` y tono de frase |
