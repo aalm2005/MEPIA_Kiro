@@ -48,13 +48,46 @@ class CalcResultItem(BaseModel):
 
 
 class AuditInsightItem(BaseModel):
-    module: str
-    raw_result: str
-    copilot_phrase: str
-    archetype: Literal["Operative Genius", "Product Purist", "Growth Hacker"]
-    alert_level: Literal["info", "warning", "critical"]
-    recommended_action: str
-    context_weight: Literal["reducido", "normal", "amplificado"]
+    """Insight CEO-framed generado por N05. No hereda de AgentResult."""
+    anomaly_ref:        str   = Field(description="ID de la anomalía base del ForensicReport")
+    copilot_phrase:     str   = Field(description="Explicación con tono de CEO, arquetipo aplicado")
+    recommended_action: str   = Field(description="Acción sugerida al dueño con plazo o frecuencia")
+    context_weight:     Literal["reducido", "normal", "amplificado"]
+
+
+class ForensicAnomalyItem(BaseModel):
+    """Anomalía individual del ForensicReport de S4 — diagnóstico puro sin lenguaje CEO."""
+    anomaly_id:        str
+    type:              Literal["margin_leak", "source_discrepancy", "operational_ceiling", "cost_spike", "other"]
+    description:       str
+    severity:          Literal["low", "medium", "high"]
+    quantified_impact: str
+    data_points:       list[str]
+    metric_origin:     str
+
+
+class ForensicReport(BaseModel):
+    """Output de S4 Forensic CFO — diagnóstico crudo y objetivo, sin arquetipos."""
+    business_id:          str
+    date:                 date
+    risk_level:           Literal["low", "medium", "high"]
+    anomalies:            list[ForensicAnomalyItem]   # campo canónico — 'diagnostics' es alias
+    evidence_sources:     list[str]
+    observed_causality:   Optional[dict] = None       # DailyContextTags adjunto sin interpretación
+    generated_at:         datetime
+
+    @property
+    def diagnostics(self) -> list[ForensicAnomalyItem]:
+        """Alias de compatibilidad — usar 'anomalies' en código nuevo."""
+        return self.anomalies
+
+    @property
+    def severity_score(self) -> float:
+        """Score numérico: high=1.0, medium=0.5, low=0.1. Promedio del reporte."""
+        mapping = {"high": 1.0, "medium": 0.5, "low": 0.1}
+        if not self.anomalies:
+            return 0.0
+        return sum(mapping[a.severity] for a in self.anomalies) / len(self.anomalies)
 
 
 class ContextTags(BaseModel):
@@ -68,9 +101,11 @@ class ContextTags(BaseModel):
 
 class SequentialContext(BaseModel):
     """Resultados completos de Layer 1 — pasados como contexto a cada nodo paralelo."""
+    business_id:     str
     active_metrics:  list[str]
     calc_results:    list[CalcResultItem]
-    audit_insights:  list[AuditInsightItem]
+    forensic_report: ForensicReport      = Field(description="Diagnóstico crudo y objetivo generado por S4")
+    insights:        list[AuditInsightItem] = Field(description="Insights adaptados por N05 con arquetipo CEO")
     context_tags:    ContextTags            # tipado estricto, nunca dict libre
 
 

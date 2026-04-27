@@ -160,14 +160,42 @@ Si N06 retorna HTTP 503:
 
 ```
 1. Recibe ForensicReport de S4
-2. Llama MemoryService.get_context(query=anomalías_detectadas, business_id)
-3. Para cada AnomalyItem en ForensicReport.anomalies:
+2. Construye query RAG desde anomalías de severidad "high" y "medium"
+3. Llama MemoryService.get_context(query, business_id)
+4. Para cada AnomalyItem en ForensicReport.anomalies:
    a. Aplica CEO Cognitive Frame del arquetipo recibido
    b. Lee observed_causality para ajustar tono (no severidad)
-   c. Genera AuditInsight con copilot_phrase + recommended_action
-4. Determina alert_level de cada AuditInsight desde severity del AnomalyItem:
-   "high" → "critical" | "medium" → "warning" | "low" → "info"
+   c. Asigna context_weight según lógica de memoria histórica
+   d. Genera AuditInsight con copilot_phrase + recommended_action
+5. Determina alert_level de cada AuditInsight desde severity del AnomalyItem
 ```
+
+### Lógica de Recuperación de Memoria (RAG)
+
+La `query` para `MemoryService.get_context` se construye concatenando los campos
+`description` y `evidence_sources` de las anomalías con `severity: "high"` o `"medium"`:
+
+```python
+query = " ".join([
+    f"Anomalía: {a.description}. Evidencia: {', '.join(a.evidence_sources or [])}."
+    for a in forensic_report.anomalies
+    if a.severity in ("high", "medium")
+])
+```
+
+Las anomalías `severity: "low"` no se incluyen en la query RAG — no justifican
+consumir contexto histórico.
+
+### Lógica de Asignación de `context_weight`
+
+| Condición | `context_weight` |
+|-----------|-----------------|
+| RAG devuelve incidentes similares en los últimos 90 días para la misma categoría de anomalía | `"amplificado"` — requiere acción correctiva fuerte, patrón recurrente |
+| RAG devuelve contexto histórico pero no recurrente a corto plazo | `"normal"` — comportamiento por defecto |
+| RAG no devuelve contexto histórico relevante, O `AnomalyItem.severity: "low"` | `"reducido"` — anomalía aislada o de bajo impacto |
+
+Regla de precedencia: si `severity: "low"` → `context_weight: "reducido"` siempre,
+independientemente del resultado del RAG.
 
 ### Mapeo `AnomalyItem.severity` → `AuditInsight.alert_level`
 

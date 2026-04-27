@@ -1,6 +1,6 @@
 # S3 — Motor de Cálculo (Python)
 
-**Capa:** Sequential | **Anterior:** S2 Gatekeeper | **Siguiente:** S4 Auditoría IA
+**Capa:** Sequential | **Anterior:** S2 Gatekeeper | **Siguiente:** S4 Forensic CFO
 **Archivo de implementación:** `agents/calc_engine.py`
 **Responsabilidad:** Cálculos financieros puros. Sin IA, sin interpretación, solo números.
 

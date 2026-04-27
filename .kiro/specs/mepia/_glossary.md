@@ -210,6 +210,9 @@ date: YYYY-MM-DD
 archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"  # default: Operative Genius
 ```
 
+> Nota: `archetype` vive en `OrchestratorRunPayload` (N05), no en `AuditRunPayload` (S4).
+> `POST /audit/run` de S4 solo recibe `business_id` y `date` — sin arquetipo.
+
 ### POSIngestResult
 ```
 file_id: UUID                    → documents.id
@@ -260,25 +263,25 @@ data_points: string[]        # evidencia numérica de S3 que sustenta la anomal�
 metric_origin: string        # nombre de la CalcResult que originó la anomalía
 ```
 
-### AuditInsight (generado por N05 — output final CEO-framed)
+### AuditInsight (generado exclusivamente por N05 CEO Orchestrator — NO hereda de AgentResult)
 ```
-module: string
-raw_result: string               // número crudo de S3
-copilot_phrase: string           // frase CEO-framed generada por N05 con arquetipo
-archetype: CEO Archetype
-alert_level: "info" | "warning" | "critical"
-recommended_action: string       // acción específica con frecuencia o plazo
+anomaly_ref: UUID                # ID del AnomalyItem origen en ForensicReport
+copilot_phrase: string           # frase CEO-framed generada por N05 con arquetipo
+archetype: CEO Archetype         # arquetipo aplicado por N05
+recommended_action: string       # acción específica con frecuencia o plazo
 context_weight: "reducido" | "normal" | "amplificado"
-anomaly_ref: UUID                // anomaly_id del AnomalyItem origen en ForensicReport
+alert_level: "info" | "warning" | "critical"   # mapeado desde AnomalyItem.severity
 ```
 
-### AgentResult (base)
+### AgentResult (base — exclusivo para nodos paralelos N07/N08/N09)
 ```
 module: string
 raw_result: string
 copilot_phrase: string
 archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"
 ```
+> Contrato base EXCLUSIVO para los resultados de los agentes paralelos (N07, N08, N09).
+> NO es el padre de AuditInsight — ese contrato es independiente y generado por N05.
 
 ### MemoryChunk
 Payload que N12 o N13 envían a `MemoryService.store_memory()` al final de Layer 3.
