@@ -210,14 +210,14 @@ independientemente del resultado del RAG.
 ## Output — `AuditInsight` (generado por N05)
 
 ```
-module: string                   // nombre del módulo auditado
-raw_result: string               // número crudo de S3 (pasado desde ForensicReport)
+anomaly_ref: UUID                // anomaly_id del AnomalyItem origen en ForensicReport
 copilot_phrase: string           // frase CEO-framed, específica y accionable
 archetype: CEO Archetype         // arquetipo aplicado
 alert_level: "info"|"warning"|"critical"
 recommended_action: string       // acción específica con frecuencia o plazo
-context_weight: "reducido"|"normal"|"amplificado"  // tono ajustado por observed_causality
-anomaly_ref: UUID                // anomaly_id del AnomalyItem origen en ForensicReport
+context_weight: "reducido"|"normal"|"amplificado"
+module: string                   // nombre del módulo auditado (ej. "conciliacion_caja")
+raw_result: string               // número crudo de S3 — tomado de AnomalyItem.quantified_impact
 ```
 
 ---

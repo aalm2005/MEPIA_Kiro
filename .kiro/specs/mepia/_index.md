@@ -89,7 +89,7 @@
 | N09           | `agents/business_health.py`                              |
 | S2 gatekeeper | `agents/gatekeeper.py`                   |
 | S3            | `agents/calc_engine.py`                  |
-| S4 auditoría  | `agents/audit_node.py`                   |
+| S4 forensic CFO | `agents/forensic_cfo.py`                 |
 
 ## Schema de base de datos
 

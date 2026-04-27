@@ -31,7 +31,7 @@
 | Memory_Writer        | Python module     | Escribe JSON en mepia.db tras Sequential pipeline |
 | Memory_Reader        | Python module     | Lee últimos N días + deltas para Auditor Agent |
 | RAG_KB               | Vector store      | Entrevistas de auditores + NIIF |
-| Prompt Dictionary    | Python dict/YAML  | Templates de arquetipo para S4 — prohíbe frases genéricas |
+| Prompt Dictionary    | Python dict/YAML  | Templates de arquetipo para N05 CEO Orchestrator — prohíbe frases genéricas, define lente por arquetipo (Operative Genius, Product Purist, Growth Hacker) |
 | Engram               | Binario Go (local)| Memoria de largo plazo (CAS). Requiere compilar el repo Engram y tener el binario en PATH. Configurado como servidor MCP en `.kiro/settings/mcp.json` con `{"command": "engram", "args": ["mcp"]}`. Expone herramientas `search` (read) y `store` (write). |
 | MemoryService        | Python (`utils/memory_service.py`) | Wrapper que abstrae pgvector + Engram. Expone `get_context()` (read, todos los agentes) y `store_memory()` (write, solo N12/N13). |
 | mepia_memory         | Supabase pgvector | Tabla de embeddings semánticos ("Brain"). Single Source of Truth para RAG. Embedding: `text-embedding-3-small` 1536 dims. FK real a `businesses`. Engram reconstruye desde aquí al reiniciar. |
@@ -197,21 +197,24 @@ business_id: UUID
 date: YYYY-MM-DD
 archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"
 pipeline_status: "completed" | "partial" | "escalated" | "failed"
-sequential_results: { active_metrics, calc_results, audit_insights }
+sequential_results: {
+  active_metrics: string[]
+  calc_results: CalcResult[]
+  forensic_report: ForensicReport    # output crudo de S4
+  audit_insights: AuditInsight[]     # generados por N05 con arquetipo
+}
 escalation: { triggered: bool, reason: str | null, layer2_run_id: UUID | null }
 dormant_metrics: [{ metric, missing: string[] }]
 completed_at: datetime
 ```
 
 ### AuditRunPayload
+Payload de `POST /audit/run` — exclusivo de S4 Forensic CFO. Sin arquetipo.
 ```
 business_id: UUID
 date: YYYY-MM-DD
-archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"  # default: Operative Genius
 ```
-
-> Nota: `archetype` vive en `OrchestratorRunPayload` (N05), no en `AuditRunPayload` (S4).
-> `POST /audit/run` de S4 solo recibe `business_id` y `date` — sin arquetipo.
+> `archetype` vive en `OrchestratorRunPayload` (N05), no aquí.
 
 ### POSIngestResult
 ```
@@ -271,6 +274,8 @@ archetype: CEO Archetype         # arquetipo aplicado por N05
 recommended_action: string       # acción específica con frecuencia o plazo
 context_weight: "reducido" | "normal" | "amplificado"
 alert_level: "info" | "warning" | "critical"   # mapeado desde AnomalyItem.severity
+module: string                   # nombre del módulo auditado (ej. "conciliacion_caja")
+raw_result: string               # número crudo de S3 pasado desde ForensicReport.quantified_impact
 ```
 
 ### AgentResult (base — exclusivo para nodos paralelos N07/N08/N09)
