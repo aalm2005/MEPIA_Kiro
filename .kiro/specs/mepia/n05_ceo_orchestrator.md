@@ -81,6 +81,7 @@ class OrchestratorRunPayload(BaseModel):
         "Operative Genius", "Product Purist", "Growth Hacker"
     ] = "Operative Genius"
     escalate_to_parallel: bool = True
+    temporalidad: Literal["short", "medium", "long"] = "short"  # propagado hasta N10
 ```
 
 **Response 200:**

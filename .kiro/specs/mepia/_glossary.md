@@ -152,6 +152,7 @@ sequential_run_id: UUID
 business_id: UUID
 date: YYYY-MM-DD
 archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"
+temporalidad: "short" | "medium" | "long"   # propagado desde OrchestratorRunPayload
 node_results: NodeResult[3]     # siempre 3 elementos
 summary: {
   total_nodes: 3
@@ -182,6 +183,7 @@ sequential_run_id: UUID
 business_id: UUID
 date: YYYY-MM-DD
 archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"
+temporalidad: "short" | "medium" | "long"   # propagado desde OrchestratorRunPayload
 sequential_context: SequentialContext
 node_timeouts: {
   n07_conciliacion: int (default 15s)
@@ -303,3 +305,48 @@ Chunking interno (MemoryService):
 - Divide `content` en fragmentos de ≤500 tokens con 50 tokens de solapamiento
 - Cada chunk se inserta con `status: "pending_embed"`, `chunk_index: i`, `chunk_total: N`
 - FastAPI BackgroundTask genera embedding y actualiza `status: "embedded"`
+
+### Enriched_Audit_Payload (output de N10 — input de N11)
+```
+layer2_run_id: UUID
+sequential_run_id: UUID
+business_id: UUID
+date: date
+archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"
+temporalidad: "short" | "medium" | "long"
+forensic_report: ForensicReport          # diagnóstico S4
+audit_insights: AuditInsightItem[]       # insights N05
+time_series: TimeSeriesRollup            # SQL rollup dinámico
+parallel_summary: ParallelNodeSummary    # estado de N07/N08/N09
+brand_identity: BrandIdentityBlock       # Lente del CEO desde mepia_memory
+historical_context: string               # RAG consolidado
+built_at: datetime
+build_duration_ms: int
+```
+
+### TimeSeriesRollup
+```
+temporalidad: "short" | "medium" | "long"
+date_start: date
+date_end: date
+granularidad: "dia" | "semana" | "mes"
+periodos: dict[]    # filas del resultado SQL
+```
+
+### ParallelNodeSummary
+```
+n09_available: bool
+n09_result: FinancialAuditResult | null
+n07_status: "not_implemented_v1" | "success" | "error"
+n08_status: "not_implemented_v1" | "success" | "error"
+all_warnings: string[]
+```
+
+### BrandIdentityBlock
+```
+retrieved: bool          # false si no hay chunk node_origin="onboarding" en mepia_memory
+content: string          # texto del Lente del CEO
+fallback_used: bool      # true si se usó identidad genérica
+```
+> El chunk de identidad de marca se inserta en `mepia_memory` durante onboarding con
+> `node_origin: "onboarding"` y `quality_approved: true`. En V1 puede insertarse manualmente.

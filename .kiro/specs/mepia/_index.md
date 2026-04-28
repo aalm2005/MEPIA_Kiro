@@ -37,9 +37,9 @@
   Recibe ForensicReport + memoria RAG
   Aplica arquetipo CEO → genera AuditInsight[] con copilot_phrase
         ↓
-[Layer 2: Parallel]   Orquestador → Conciliación | PLD | Gastos | Auditor Agent
+[Layer 2: Parallel]   Orquestador → N09 Gastos (N07/N08 skipped_v1)
         ↓
-[Layer 3: Loop/Critic] Consultor → Auditor Agent → Phrase Expander → Revisor → Informe Final
+[Layer 3: Loop/Critic] N10 Context Builder → N11 Consultor → N12 Phrase Expander → N13 Revisor → N14 Informe Final
 ```
 
 ## Nodos y archivos de spec
@@ -54,10 +54,10 @@
 | S4   | Forensic CFO (Auditoría IA) | Sequential | `s4_auditoria_ia.md`       | ✅ req done  |
 | N05  | CEO Orchestrator (Síntesis Estratégica) | CEO Layer  | `n05_ceo_orchestrator.md`  | ✅ req done |
 | N06  | Orquestador ADK         | Parallel   | `n06_orchestrator_adk.md`  | ✅ req done |
-| N07  | Conciliación Efectivo   | Parallel   | `n07_conciliacion.md`      | pendiente   |
-| N08  | Cumplimiento PLD        | Parallel   | `n08_pld.md`               | pendiente   |
+| N07  | Conciliación Efectivo   | Parallel   | `n07_conciliacion.md`      | skipped_v1  |
+| N08  | Cumplimiento PLD        | Parallel   | `n08_pld.md`               | skipped_v1  |
 | N09  | Auditoría Gastos        | Parallel   | `n09_gastos.md`            | ✅ req done |
-| N10  | Auditor Agent           | Parallel   | `n10_auditor_agent.md`     | pendiente   |
+| N10  | Context Builder (Layer 3)| Loop      | `n10_context_builder.md`   | ✅ req done |
 | N11  | Consultor Especialista  | Loop       | `n11_consultor.md`         | pendiente   |
 | N12  | Phrase Expander         | Loop       | `n12_phrase_expander.md`   | pendiente   |
 | N13  | Revisor de Calidad      | Loop       | `n13_revisor.md`           | pendiente   |
@@ -73,6 +73,7 @@
 - **CalcResult** → `s3_motor_calculo.md`
 - **ForensicReport** → `s4_auditoria_ia.md`
 - **AuditInsight** → `n05_ceo_orchestrator.md` (generado por N05, no por S4)
+- **Enriched_Audit_Payload** → `n10_context_builder.md`
 - **OrchestratorResult** → `n05_ceo_orchestrator.md`
 - **AgentResult** → `agents/base_agent.py`
 - **MemoryChunk** → `mem_memory_layer.md`
@@ -89,7 +90,8 @@
 | N09           | `agents/business_health.py`                              |
 | S2 gatekeeper | `agents/gatekeeper.py`                   |
 | S3            | `agents/calc_engine.py`                  |
-| S4 forensic CFO | `agents/forensic_cfo.py`                 |
+| S4 forensic CFO     | `agents/forensic_cfo.py`                 |
+| N10 context builder | `agents/context_builder.py`              |
 
 ## Schema de base de datos
 

@@ -122,6 +122,7 @@ class Layer2RunPayload(BaseModel):
     business_id:      UUID
     date:             date
     archetype:        Literal["Operative Genius", "Product Purist", "Growth Hacker"]
+    temporalidad:     Literal["short", "medium", "long"]  # propagado desde OrchestratorRunPayload
     sequential_context: SequentialContext
     node_timeouts:    NodeTimeouts = NodeTimeouts()
 ```
@@ -164,6 +165,7 @@ class ParallelGatherResult(BaseModel):
     business_id:       UUID
     date:              date
     archetype:         Literal["Operative Genius", "Product Purist", "Growth Hacker"]
+    temporalidad:      Literal["short", "medium", "long"]  # propagado para N10
     node_results:      list[NodeResult]     # siempre 3 elementos
     summary:           GatherSummary
     gather_status:     Literal[
