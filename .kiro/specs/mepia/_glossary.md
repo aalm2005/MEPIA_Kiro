@@ -395,3 +395,34 @@ action: string                   # descripción directa, sin jerga corporativa
 priority: "immediate" | "this_week" | "this_month"
 owner: string                    # quién ejecuta (ej. "barista líder", "dueño")
 ```
+
+### CriticVerdict (output de N13 — Structured Output del LLM)
+```
+aprobado: bool
+tipo_falla: "ALUCINACION_MATEMATICA" | "DESVIACION_IDENTIDAD" | "NINGUNA"
+warning_especifico: string | null   # feedback para N11 si aprobado=false
+insight_para_memoria: string | null # resumen 2 líneas para mepia_memory si aprobado=true
+```
+> Retornado por el LLM de N13 con structured output (Pydantic). Nunca texto libre.
+
+### Layer3State (estado del grafo LangGraph — Layer 3)
+```
+# Trazabilidad (escritas por N10, inmutables)
+layer3_run_id: str
+layer2_run_id: str
+sequential_run_id: str
+business_id: str
+date: str
+archetype: str
+
+# Payload de datos (fuente de verdad para N13)
+enriched_payload: dict           # EnrichedAuditPayload serializado
+
+# Borrador (escrito por N11, evaluado por N13)
+draft_report: dict | None        # DraftReport serializado
+
+# Control del loop de calidad (escritas por N13)
+intentos_critico: int            # default 0
+feedback_critico: str | None     # default None — leído por N11 para corregir
+draft_status: str                # "pending" | "approved" | "approved_with_warning" | "rejected"
+```

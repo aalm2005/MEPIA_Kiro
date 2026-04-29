@@ -59,8 +59,8 @@
 | N09  | Auditoría Gastos        | Parallel   | `n09_gastos.md`            | ✅ req done |
 | N10  | Context Builder (Layer 3)| Loop      | `n10_context_builder.md`   | ✅ req done |
 | N11  | Consultor Especialista (Core Auditor) | Loop | `n11_consultor.md`         | ✅ req done |
-| N12  | Phrase Expander         | Loop       | `n12_phrase_expander.md`   | pendiente   |
-| N13  | Revisor de Calidad      | Loop       | `n13_revisor.md`           | pendiente   |
+| N12  | Phrase Expander         | Loop       | `n12_phrase_expander.md`   | skipped_v1  |
+| N13  | Revisor de Calidad (Critic & Enforcer) | Loop | `n13_revisor.md` | ✅ req done |
 | N14  | Informe Final           | Loop       | `n14_informe_final.md`     | pendiente   |
 | MEM  | Memory Layer            | Transversal| `mem_memory_layer.md`      | ✅ req done |
 
@@ -75,6 +75,8 @@
 - **AuditInsight** → `n05_ceo_orchestrator.md` (generado por N05, no por S4)
 - **Enriched_Audit_Payload** → `n10_context_builder.md`
 - **DraftReport** → `n11_consultor.md`
+- **CriticVerdict** → `n13_revisor.md`
+- **Layer3State** → `agents/layer3_state.py`
 - **OrchestratorResult** → `n05_ceo_orchestrator.md`
 - **AgentResult** → `agents/base_agent.py`
 - **MemoryChunk** → `mem_memory_layer.md`
@@ -93,6 +95,10 @@
 | S3            | `agents/calc_engine.py`                  |
 | S4 forensic CFO     | `agents/forensic_cfo.py`                 |
 | N10 context builder | `agents/context_builder.py`              |
+| N11 consultor       | `agents/core_auditor.py`                 |
+| N13 revisor         | `agents/n13_revisor.py`                  |
+| Layer 3 State       | `agents/layer3_state.py`                 |
+| MEM MemoryService   | `utils/memory_service.py`                |
 
 ## Schema de base de datos
 
