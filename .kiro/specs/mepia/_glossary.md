@@ -405,6 +405,19 @@ insight_para_memoria: string | null # resumen 2 líneas para mepia_memory si apr
 ```
 > Retornado por el LLM de N13 con structured output (Pydantic). Nunca texto libre.
 
+### FinalResponse (output de N14 — contrato para el frontend)
+```
+report_markdown: str             # contenido de DraftReport validado por N13
+status: str                      # "approved" | "approved_with_warning"
+has_warnings: bool               # True si status == "approved_with_warning"
+metadata: {
+  generated_at: str              # timestamp UTC ISO-8601 del momento de empaquetado
+  audit_trail: List[Dict]        # historial completo de audit_results incluyendo entrada N14
+}
+```
+> Generado por N14 de forma determinista. Sin llamadas a LLM.
+> `has_warnings` es el flag que el frontend usa para mostrar banner de advertencia al dueño.
+
 ### Layer3State (estado del grafo LangGraph — Layer 3)
 ```
 # Trazabilidad (escritas por N10, inmutables)

@@ -61,7 +61,7 @@
 | N11  | Consultor Especialista (Core Auditor) | Loop | `n11_consultor.md`         | ✅ req done |
 | N12  | Phrase Expander         | Loop       | `n12_phrase_expander.md`   | skipped_v1  |
 | N13  | Revisor de Calidad (Critic & Enforcer) | Loop | `n13_revisor.md` | ✅ req done |
-| N14  | Informe Final           | Loop       | `n14_informe_final.md`     | pendiente   |
+| N14  | Informe Final           | Loop       | `n14_informe_final.md`     | ✅ req done |
 | MEM  | Memory Layer            | Transversal| `mem_memory_layer.md`      | ✅ req done |
 
 ## Contratos de datos clave
@@ -76,6 +76,7 @@
 - **Enriched_Audit_Payload** → `n10_context_builder.md`
 - **DraftReport** → `n11_consultor.md`
 - **CriticVerdict** → `n13_revisor.md`
+- **FinalResponse** → `n14_informe_final.md`
 - **Layer3State** → `agents/layer3_state.py`
 - **OrchestratorResult** → `n05_ceo_orchestrator.md`
 - **AgentResult** → `agents/base_agent.py`
@@ -97,6 +98,7 @@
 | N10 context builder | `agents/context_builder.py`              |
 | N11 consultor       | `agents/core_auditor.py`                 |
 | N13 revisor         | `agents/n13_revisor.py`                  |
+| N14 informe final   | `agents/n14_informe_final.py`            |
 | Layer 3 State       | `agents/layer3_state.py`                 |
 | MEM MemoryService   | `utils/memory_service.py`                |
 
@@ -113,3 +115,18 @@ Al implementar un nodo, cargar SOLO:
 1. `_index.md` + `_glossary.md`
 2. El archivo del nodo específico
 3. Los archivos de código directamente relacionados
+
+---
+
+## Arquitectura de LLMs (Decisión fija — V1)
+
+Estrategia híbrida OpenAI + Anthropic. Variables de entorno obligatorias: `OPENAI_API_KEY` + `ANTHROPIC_API_KEY`.
+
+| Nodo | Modelo | Proveedor | Rol |
+|------|--------|-----------|-----|
+| S4 Forensic CFO | `gpt-4o` | OpenAI | Diagnóstico forense, structured output |
+| N05 CEO Orchestrator | `gpt-4o` | OpenAI | Síntesis estratégica con arquetipo |
+| N09 Copilot Phrase | `gpt-4o-mini` | OpenAI | Frase de soporte, no crítico |
+| N11 Consultor | `claude-3-5-sonnet-20241022` | Anthropic (primario) | Redacción narrativa — el reporte que lee el dueño |
+| N11 Fallback | `gpt-4o` | OpenAI | Activado si Anthropic no está disponible |
+| N13 Revisor | `gpt-4o` | OpenAI | Verificación matemática, structured output |

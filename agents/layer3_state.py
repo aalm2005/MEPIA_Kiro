@@ -48,6 +48,11 @@ class Layer3State(TypedDict):
     Auditoría del nodo (escritas por N13 en cada ejecución):
         audit_results    : Lista acumulada de veredictos serializados de N13.
                            Cada entrada corresponde a una ejecución del nodo.
+
+    Output terminal (escrito por N14 — nodo final del grafo):
+        final_response   : FinalResponse empaquetado. Contiene report_markdown,
+                           status, has_warnings y metadata (generated_at + audit_trail).
+                           None hasta que N14 ejecuta.
     """
 
     # ── Trazabilidad ──────────────────────────────────────────────────────────
@@ -73,3 +78,6 @@ class Layer3State(TypedDict):
 
     # ── Auditoría del nodo ────────────────────────────────────────────────────
     audit_results: List[Dict[str, Any]]    # veredictos serializados de N13 — default []
+
+    # ── Output terminal (escrito por N14) ─────────────────────────────────────
+    final_response: Optional[Dict[str, Any]]  # FinalResponse empaquetado — default None

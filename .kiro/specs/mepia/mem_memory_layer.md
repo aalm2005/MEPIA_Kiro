@@ -17,6 +17,17 @@ Dos sistemas de memoria coexisten con propósitos estrictamente distintos:
 > `mepia_memory` = Brain semántico para LangChain RAG. Postgres es la Single Source of Truth.
 > Engram es secundario: si falla, reconstruye su estado leyendo `mepia_memory` al reiniciar.
 
+## Decisión de Motor de Embeddings (V1 — Fijo)
+
+| Campo | Valor |
+|-------|-------|
+| **Modelo** | `text-embedding-3-small` |
+| **Proveedor** | OpenAI |
+| **Dimensiones** | **1536** (fijo — no modificable sin migración completa de la tabla) |
+| **Justificación** | Balance óptimo entre calidad semántica y costo. Dimensión estándar compatible con pgvector HNSW. Menor latencia que `text-embedding-3-large` (3072 dims) sin sacrificar precisión para el dominio de auditoría financiera. |
+| **Variable de entorno requerida** | `OPENAI_API_KEY` |
+| **Impacto en schema** | La columna `mepia_memory.embedding` es `vector(1536)`. Cambiar de modelo requiere recrear la tabla y regenerar todos los embeddings existentes. |
+
 ---
 
 ## Input / Output

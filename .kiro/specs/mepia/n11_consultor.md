@@ -1,9 +1,51 @@
 # N11 — Consultor Especialista (Core Auditor LLM)
 
-**Capa:** Layer 3 — Nodo 2 | **Anterior:** N10 Context Builder | **Siguiente:** N12 Phrase Expander
+**Capa:** Layer 3 — Nodo 2 | **Anterior:** N10 Context Builder | **Siguiente:** N13 Revisor de Calidad
 **Archivo de implementación:** `agents/core_auditor.py`
 **Tipo:** LLM Principal (Heavy-lifter)
-**Archivos relacionados:** `n10_context_builder.md`, `n12_phrase_expander.md`, `_glossary.md`
+**Archivos relacionados:** `n10_context_builder.md`, `n13_revisor.md`, `_glossary.md`
+
+## Decisión de LLM
+
+| Campo | Valor |
+|-------|-------|
+| **Modelo primario** | `claude-3-5-sonnet-20241022` |
+| **Proveedor primario** | Anthropic |
+| **Modelo de fallback** | `gpt-4o` |
+| **Proveedor de fallback** | OpenAI |
+| **Temperatura** | `0.4` — permite fluidez narrativa sin perder coherencia con los datos |
+| **Justificación** | Este es el nodo que genera el reporte que lee el dueño del negocio. Claude 3.5 Sonnet produce redacción narrativa más orgánica, conversacional y empática — cualidades críticas para el tono de "operador de piso" que define la identidad de MEPIA. GPT-4o es técnicamente preciso pero tiende a un tono más formal. |
+| **Variables de entorno requeridas** | `ANTHROPIC_API_KEY` (primario) + `OPENAI_API_KEY` (fallback) |
+
+### Estrategia de Fallback (Resiliencia del Pipeline)
+
+N11 implementa un fallback automático a `gpt-4o` usando LangChain `with_fallbacks()`:
+
+```python
+from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
+
+llm_primary  = ChatAnthropic(model="claude-3-5-sonnet-20241022", temperature=0.4)
+llm_fallback = ChatOpenAI(model="gpt-4o", temperature=0.4)
+
+# LangChain maneja el fallback automáticamente si Anthropic falla
+llm = llm_primary.with_fallbacks([llm_fallback])
+```
+
+**Condiciones que activan el fallback:**
+- Timeout de la API de Anthropic (> 30s)
+- Error HTTP 5xx de Anthropic
+- `anthropic.APIConnectionError` o `anthropic.RateLimitError`
+
+**Condiciones que NO activan el fallback:**
+- JSON inválido en la respuesta (se reintenta con temperatura reducida en el mismo modelo)
+- Error de validación Pydantic (problema de prompt, no de infraestructura)
+
+**Registro en `DraftReport.model_used`:**
+- Respuesta de Claude → `"claude-3-5-sonnet-20241022"`
+- Respuesta de fallback → `"gpt-4o (fallback — anthropic_unavailable)"`
+
+Esto permite auditar en `audit_results` cuántas veces se activó el fallback por período.
 
 ---
 

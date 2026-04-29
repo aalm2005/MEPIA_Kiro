@@ -7,6 +7,17 @@
 
 > **V1:** N12 (Phrase Expander) skipped. Flujo directo: N11 → N13 → N14.
 
+## Decisión de LLM
+
+| Campo | Valor |
+|-------|-------|
+| **Modelo** | `gpt-4o` |
+| **Proveedor** | OpenAI |
+| **Temperatura** | `0` — determinismo máximo para verificación matemática |
+| **Justificación** | Verificación matemática estricta y structured output (`CriticVerdict`). Requiere extraer cifras del texto narrativo y cruzarlas contra datos crudos con precisión. `gpt-4o` con `temperature=0` es el más confiable para este tipo de razonamiento analítico-verificador. Confirmado como decisión final. |
+| **Variable de entorno requerida** | `OPENAI_API_KEY` |
+| **Fallback** | No aplica — si el LLM falla, el nodo retorna `approved_with_warning` directamente (ver lógica de cortafuegos en `agents/n13_revisor.py`). |
+
 ---
 
 ## Input / Output
