@@ -23,7 +23,7 @@ Dos sistemas de memoria coexisten con propósitos estrictamente distintos:
 
 - **Input (read):** `query: str`, `business_id: UUID`, `limit: int = 5`
 - **Output:** `context: str` — string consolidado listo para inyectar en system prompt
-- **Input (write):** `MemoryChunk` — solo desde N12 o N13 al final de Layer 3
+- **Input (write):** `MemoryChunk` — solo desde N12 o N13 al final de Layer 3, o desde el proceso de onboarding (`node_origin: "onboarding"`)
 
 ---
 
@@ -104,7 +104,9 @@ class MemoryService:
         # 3. Retorna string consolidado para el prompt
 
     async def store_memory(self, chunk: MemoryChunk) -> None:
-        # Solo llamado por N12 o N13 (enforced por el orquestador)
+        # Llamado por N12, N13 (enforced por el orquestador) o proceso de onboarding
+        # node_origin acepta: "N12" | "N13" | "onboarding"
+        # source_audit_run_id es nullable — null para chunks de onboarding
         # 1. Divide content en chunks de 500 tokens / 50 solapamiento
         # 2. Inserta cada chunk en mepia_memory con status="pending_embed"
         # 3. FastAPI BackgroundTask genera embedding y actualiza status="embedded"

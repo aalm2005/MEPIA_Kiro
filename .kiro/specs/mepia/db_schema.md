@@ -214,7 +214,7 @@ Memoria semántica ("Brain") — Single Source of Truth para RAG. NO es el Ledge
 |----------------------|-----------------|----------------------------------------------------------------------------|
 | id                   | uuid PK         | gen_random_uuid()                                                          |
 | business_id          | uuid FK         | REFERENCES businesses(id) ON DELETE CASCADE — no más registros huérfanos  |
-| source_audit_run_id  | uuid FK         | REFERENCES audit_results(run_id) — trazabilidad al reporte origen          |
+| source_audit_run_id  | uuid FK         | REFERENCES audit_results(run_id) ON DELETE SET NULL — **nullable** para chunks de onboarding sin auditoría previa |
 | content              | text            | Texto del chunk (≤500 tokens) — prohibido guardar reportes completos       |
 | metadata             | jsonb           | `{ "node_origin": "N12", "date": "YYYY-MM-DD", "chunk_index": 0, "chunk_total": 4 }` |
 | embedding            | vector(1536)    | Generado con text-embedding-3-small — null hasta que worker procese        |

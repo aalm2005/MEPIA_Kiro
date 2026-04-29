@@ -291,35 +291,32 @@ archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"
 > NO es el padre de AuditInsight — ese contrato es independiente y generado por N05.
 
 ### MemoryChunk
-Payload que N12 o N13 envían a `MemoryService.store_memory()` al final de Layer 3.
+Payload que N12, N13 o el proceso de onboarding envían a `MemoryService.store_memory()`.
 ```
 business_id: UUID
-source_audit_run_id: UUID        # FK a audit_results.run_id — trazabilidad obligatoria
-node_origin: "N12" | "N13"
+source_audit_run_id: UUID | null     # null para chunks de onboarding — columna nullable en DB
+node_origin: "N12" | "N13" | "onboarding"   # "onboarding" para identidad de marca
 date: YYYY-MM-DD
-content: string                  # texto completo — MemoryService lo divide en chunks internamente
-archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"
-quality_approved: bool           # true si N13 validó el contenido
+content: string                      # texto completo — MemoryService lo divide en chunks internamente
+archetype: "Operative Genius" | "Product Purist" | "Growth Hacker" | null  # null para onboarding
+quality_approved: bool               # true si N13 validó el contenido, o true para onboarding
 ```
-Chunking interno (MemoryService):
-- Divide `content` en fragmentos de ≤500 tokens con 50 tokens de solapamiento
-- Cada chunk se inserta con `status: "pending_embed"`, `chunk_index: i`, `chunk_total: N`
-- FastAPI BackgroundTask genera embedding y actualiza `status: "embedded"`
 
 ### Enriched_Audit_Payload (output de N10 — input de N11)
 ```
+layer3_run_id: UUID              # UUID generado por N10
 layer2_run_id: UUID
 sequential_run_id: UUID
 business_id: UUID
 date: date
 archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"
 temporalidad: "short" | "medium" | "long"
-forensic_report: ForensicReport          # diagnóstico S4
-audit_insights: AuditInsightItem[]       # insights N05
-time_series: TimeSeriesRollup            # SQL rollup dinámico
-parallel_summary: ParallelNodeSummary    # estado de N07/N08/N09
-brand_identity: BrandIdentityBlock       # Lente del CEO desde mepia_memory
-historical_context: string               # RAG consolidado
+forensic_report: ForensicReport
+audit_insights: AuditInsightItem[]
+time_series: TimeSeriesRollup
+parallel_summary: ParallelNodeSummary
+brand_identity: BrandIdentityBlock
+historical_context: string       # máx 1,500 tokens
 built_at: datetime
 build_duration_ms: int
 ```
@@ -330,7 +327,32 @@ temporalidad: "short" | "medium" | "long"
 date_start: date
 date_end: date
 granularidad: "dia" | "semana" | "mes"
-periodos: dict[]    # filas del resultado SQL
+periodos: ShortPeriodMetrics[] | MediumPeriodMetrics[] | LongPeriodMetrics[]
+```
+
+### ShortPeriodMetrics (temporalidad == "short" — últimos 30 días)
+```
+periodo: date
+ingresos: Decimal
+gastos_variable: Decimal
+gastos_fijos: Decimal
+num_transacciones: int
+```
+
+### MediumPeriodMetrics (temporalidad == "medium" — últimos 6 meses)
+```
+periodo: date    # inicio de semana
+ingresos: Decimal
+egresos: Decimal
+ingreso_promedio_semanal: Decimal
+```
+
+### LongPeriodMetrics (temporalidad == "long" — último año)
+```
+periodo: date    # inicio de mes
+capex_mes: Decimal
+ingresos_mes: Decimal
+egresos_mes: Decimal
 ```
 
 ### ParallelNodeSummary
@@ -345,8 +367,8 @@ all_warnings: string[]
 ### BrandIdentityBlock
 ```
 retrieved: bool          # false si no hay chunk node_origin="onboarding" en mepia_memory
-content: string          # texto del Lente del CEO
+content: string          # texto del Lente del CEO — recuperado por SQL directo, no RAG
 fallback_used: bool      # true si se usó identidad genérica
 ```
-> El chunk de identidad de marca se inserta en `mepia_memory` durante onboarding con
-> `node_origin: "onboarding"` y `quality_approved: true`. En V1 puede insertarse manualmente.
+> Recuperado con SQL directo: `WHERE metadata->>'node_origin' = 'onboarding' AND business_id = :id`
+> En V1 se inserta manualmente. En versiones posteriores lo genera el onboarding automáticamente.

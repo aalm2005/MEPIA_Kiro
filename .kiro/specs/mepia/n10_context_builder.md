@@ -20,12 +20,45 @@ N06 ParallelGatherResult
 N10 Context Builder (Python determinista)
   ├─ Extrae ForensicReport + N09 result de ParallelGatherResult
   ├─ Ejecuta SQL Rollups según temporalidad
-  ├─ Consulta MemoryService (brand_identity + historial)
-  └─ Emite Enriched_Audit_Payload
+  ├─ Consulta SQL directa para brand_identity (mepia_memory)
+  ├─ Consulta MemoryService para historial RAG (limit=3, max 1500 tokens)
+  ├─ Persiste Enriched_Audit_Payload en audit_results
+  └─ Emite Enriched_Audit_Payload a N11
         │
         ↓
 N11 Consultor Especialista (LLM)
 ```
+
+---
+
+## Endpoint REST
+
+### `POST /layer3/context-build`
+
+Llamado internamente por N06 tras completar el gather. También invocable directamente para testing.
+
+**Request body:** `ContextBuilderInput`
+
+**Response 202:** Acepta la solicitud y procesa de forma síncrona (N10 es determinista, no necesita polling).
+
+**Response 200:**
+```json
+{
+  "layer3_run_id": "uuid-v4",
+  "layer2_run_id": "uuid-v4",
+  "build_status": "complete" | "partial",
+  "built_at": "2024-01-15T22:15:00Z",
+  "build_duration_ms": 340
+}
+```
+
+**Códigos de error:**
+
+| HTTP | Condición |
+|------|-----------|
+| 404  | `business_id` no existe |
+| 422  | `ContextBuilderInput` inválido |
+| 503  | Fallo en SQL rollup o MemoryService — incluye detalle |
 
 ---
 
@@ -34,12 +67,15 @@ N11 Consultor Especialista (LLM)
 ```python
 class ContextBuilderInput(BaseModel):
     parallel_gather_result: ParallelGatherResult  # output completo de N06
-    temporalidad: Literal["short", "medium", "long"]  # propagado desde OrchestratorRunPayload
+    # temporalidad se lee de parallel_gather_result.temporalidad — no se duplica aquí
 ```
 
 ### Extracción desde `ParallelGatherResult`
 
 ```python
+# temporalidad viene dentro del ParallelGatherResult — no se duplica
+temporalidad = parallel_gather_result.temporalidad
+
 # Datos base de Layer 1 (via sequential_context)
 forensic_report  = parallel_gather_result.sequential_context.forensic_report
 audit_insights   = parallel_gather_result.sequential_context.insights
@@ -70,9 +106,35 @@ La granularidad de las consultas SQL depende del parámetro `temporalidad`.
 
 | `temporalidad` | Rango | Granularidad SQL | Casos de uso |
 |----------------|-------|-----------------|--------------|
-| `"short"` | 1–30 días | `GROUP BY dia` (o por hora si disponible) | Eficiencia de barra, horarios pico, varianza diaria |
-| `"medium"` | 3–6 meses | `GROUP BY semana` | Tendencias, retención, ingeniería de menú, estacionalidad |
-| `"long"` | 1 año | `GROUP BY mes` | Resúmenes CapEx, servicios estructurales, ciclo anual |
+| `"short"` | últimos 30 días | `GROUP BY dia` | Eficiencia de barra, horarios pico, varianza diaria |
+| `"medium"` | últimos 6 meses | `GROUP BY semana` | Tendencias, retención, ingeniería de menú, estacionalidad |
+| `"long"` | último año | `GROUP BY mes` | Resúmenes CapEx, servicios estructurales, ciclo anual |
+
+### Modelos tipados por granularidad
+
+```python
+class ShortPeriodMetrics(BaseModel):
+    """Métricas diarias — usado cuando temporalidad == 'short'."""
+    periodo: date
+    ingresos: Decimal
+    gastos_variable: Decimal
+    gastos_fijos: Decimal
+    num_transacciones: int
+
+class MediumPeriodMetrics(BaseModel):
+    """Métricas semanales — usado cuando temporalidad == 'medium'."""
+    periodo: date                    # inicio de la semana (DATE_TRUNC result)
+    ingresos: Decimal
+    egresos: Decimal
+    ingreso_promedio_semanal: Decimal
+
+class LongPeriodMetrics(BaseModel):
+    """Métricas mensuales — usado cuando temporalidad == 'long'."""
+    periodo: date                    # inicio del mes (DATE_TRUNC result)
+    capex_mes: Decimal
+    ingresos_mes: Decimal
+    egresos_mes: Decimal
+```
 
 ### Consultas por modo
 
@@ -92,7 +154,7 @@ GROUP BY transaction_date
 ORDER BY transaction_date DESC
 ```
 
-**`medium` — tendencia semanal:**
+**`medium` — tendencia semanal (últimos 6 meses):**
 ```sql
 SELECT
     DATE_TRUNC('week', transaction_date) AS periodo,
@@ -107,7 +169,7 @@ GROUP BY DATE_TRUNC('week', transaction_date)
 ORDER BY periodo DESC
 ```
 
-**`long` — resumen mensual:**
+**`long` — resumen mensual (último año):**
 ```sql
 SELECT
     DATE_TRUNC('month', transaction_date) AS periodo,
@@ -127,42 +189,58 @@ ORDER BY periodo DESC
 ```python
 date_start = {
     "short":  date - timedelta(days=30),
-    "medium": date - timedelta(days=180),
+    "medium": date - timedelta(days=180),   # últimos 6 meses exactos
     "long":   date - timedelta(days=365),
 }[temporalidad]
 ```
 
 ---
 
-## Inyección de Identidad de Marca (MemoryService)
+## Inyección de Identidad de Marca (SQL Determinístico)
 
-N10 consulta `MemoryService.get_context()` con dos queries distintas:
+La identidad de marca **no usa búsqueda semántica** — usa una consulta SQL directa por metadata.
+Esto garantiza que siempre se recupera el documento correcto sin depender del score vectorial.
 
 ```python
-# 1. Identidad de marca (fija, independiente del arquetipo)
-brand_context = await memory_service.get_context(
-    query="brand_identity lente CEO hospitalidad invisible espacio seguro",
-    business_id=business_id,
-    limit=3
-)
+# Consulta SQL directa — NO usa MemoryService.get_context()
+brand_identity_row = await db.fetchone("""
+    SELECT content
+    FROM mepia_memory
+    WHERE (metadata->>'node_origin') = 'onboarding'
+      AND business_id = :business_id
+    ORDER BY created_at DESC
+    LIMIT 1
+""", {"business_id": business_id})
 
-# 2. Historial de auditorías recientes (contextual)
+brand_content = brand_identity_row["content"] if brand_identity_row else None
+```
+
+### Historial RAG (MemoryService — límite de tokens)
+
+El historial usa `MemoryService.get_context()` con límite estricto de tokens:
+
+```python
 historical_context = await memory_service.get_context(
     query=f"auditoria financiera {archetype} anomalias gastos",
     business_id=business_id,
-    limit=5
+    limit=3   # máximo 3 chunks × 500 tokens = 1,500 tokens máximo
 )
+# Si historical_context supera 1,500 tokens → truncar al límite antes de incluir en payload
+MAX_HISTORICAL_TOKENS = 1500
 ```
+
+Razón del límite: `Enriched_Audit_Payload` completo no debe superar ~4,000 tokens para
+dejar margen al system prompt y respuesta de N11.
 
 ### Identidad de marca en `mepia_memory`
 
-El "Lente del CEO" se inserta en `mepia_memory` durante el onboarding como un `MemoryChunk` especial:
+El "Lente del CEO" se inserta en `mepia_memory` durante el onboarding:
 
 ```python
 MemoryChunk(
     business_id=business_id,
-    source_audit_run_id=None,   # null — no proviene de una auditoría
-    node_origin="onboarding",   # valor especial para identidad de marca
+    source_audit_run_id=None,   # nullable — ver nota de schema
+    node_origin="onboarding",   # enum ampliado: "N12" | "N13" | "onboarding"
     date=opening_date,
     content="""
         Identidad de marca: hospitalidad invisible.
@@ -171,16 +249,15 @@ MemoryChunk(
         mecánicas estilo casino, marketing agresivo o pretencioso.
         El análisis debe priorizar la experiencia del cliente sobre métricas de conversión.
     """,
-    archetype=archetype,
+    archetype=None,              # null — identidad fija, no depende del arquetipo
     quality_approved=True
 )
 ```
 
-> En V1, este chunk puede insertarse manualmente en `mepia_memory` durante el setup del negocio.
-> En versiones posteriores, el onboarding lo generará automáticamente.
+> En V1, este chunk se inserta manualmente en `mepia_memory` durante el setup del negocio.
+> En versiones posteriores, el endpoint `POST /onboarding/business` lo generará automáticamente.
 
-La identidad de marca es **fija e independiente del arquetipo** — se aplica a todos los análisis
-sin importar si el dueño es `Operative Genius`, `Product Purist` o `Growth Hacker`.
+La identidad de marca es **fija e independiente del arquetipo**.
 
 ---
 
@@ -192,7 +269,8 @@ class TimeSeriesRollup(BaseModel):
     date_start: date
     date_end: date
     granularidad: Literal["dia", "semana", "mes"]
-    periodos: list[dict]   # filas del resultado SQL — estructura varía por granularidad
+    # periodos tipado estrictamente según granularidad:
+    periodos: list[ShortPeriodMetrics] | list[MediumPeriodMetrics] | list[LongPeriodMetrics]
 
 
 class ParallelNodeSummary(BaseModel):
@@ -209,8 +287,9 @@ class BrandIdentityBlock(BaseModel):
     fallback_used: bool      # true si se usó identidad genérica por ausencia de chunk
 
 
-class Enriched_Audit_Payload(BaseModel):
+class EnrichedAuditPayload(BaseModel):
     # Trazabilidad
+    layer3_run_id: UUID          # nuevo UUID generado por N10
     layer2_run_id: UUID
     sequential_run_id: UUID
     business_id: UUID
@@ -224,59 +303,94 @@ class Enriched_Audit_Payload(BaseModel):
     # Insights CEO (N05 via N06)
     audit_insights: list[AuditInsightItem]
 
-    # Rollups temporales (SQL dinámico)
+    # Rollups temporales (SQL dinámico, tipado estricto)
     time_series: TimeSeriesRollup
 
     # Estado de nodos paralelos
     parallel_summary: ParallelNodeSummary
 
-    # Identidad de marca (MemoryService)
+    # Identidad de marca (SQL directo a mepia_memory)
     brand_identity: BrandIdentityBlock
 
-    # Historial RAG
-    historical_context: str   # string consolidado de MemoryService para N11
+    # Historial RAG (máx 1,500 tokens)
+    historical_context: str
 
     # Metadata de construcción
     built_at: datetime
     build_duration_ms: int
 ```
 
+> Nota de naming: el contrato se llama `EnrichedAuditPayload` en código Python (snake_case class).
+> En documentación y glosario se referencia como `Enriched_Audit_Payload` por legibilidad.
+
 ---
 
-## Contratos que requieren actualización
+## Persistencia en `audit_results`
 
-Este nodo introduce `temporalidad` como campo nuevo. Los siguientes contratos deben actualizarse:
+N10 persiste el payload **antes** de entregarlo a N11. Si N11 falla, el payload es recuperable.
 
-| Contrato | Archivo | Cambio |
-|----------|---------|--------|
-| `OrchestratorRunPayload` | `n05_ceo_orchestrator.md` | Agregar `temporalidad: Literal["short","medium","long"] = "short"` |
-| `Layer2RunPayload` | `n06_orchestrator_adk.md` | Agregar `temporalidad: Literal["short","medium","long"]` |
-| `ParallelGatherResult` | `n06_orchestrator_adk.md` + `_glossary.md` | Agregar `temporalidad: Literal["short","medium","long"]` |
+| Campo           | Valor |
+|-----------------|-------|
+| `run_id`        | `layer3_run_id` (nuevo UUID de N10) |
+| `business_id`   | FK → businesses |
+| `date`          | Fecha auditada |
+| `pipeline_layer`| `"loop"` |
+| `node_id`       | `"N10"` |
+| `module`        | `"context_builder"` |
+| `archetype`     | Arquetipo del run |
+| `raw_result`    | `EnrichedAuditPayload` serializado (JSON) |
+| `copilot_phrase`| `null` — N10 no genera frases |
+| `node_status`   | `"success"` \| `"partial"` \| `"failed"` |
+
+---
+
+## Notas de Schema — Cambios Requeridos
+
+### 1. `mepia_memory.source_audit_run_id` → nullable
+
+La columna debe ser `NULL`able para permitir chunks de onboarding sin auditoría previa:
+
+```sql
+-- En 003_memory.sql:
+source_audit_run_id UUID REFERENCES audit_results(run_id) ON DELETE SET NULL
+-- (no NOT NULL)
+```
+
+### 2. `MemoryChunk.node_origin` → enum ampliado
+
+```python
+node_origin: Literal["N12", "N13", "onboarding"]
+```
+
+Actualizar en: `_glossary.md` contrato `MemoryChunk`, `mem_memory_layer.md`, y modelo Pydantic.
 
 ---
 
 ## Acceptance Criteria
 
-- WHEN `temporalidad == "short"` → SQL usa `GROUP BY transaction_date`, rango 30 días
-- WHEN `temporalidad == "medium"` → SQL usa `GROUP BY DATE_TRUNC('week', ...)`, rango 180 días
-- WHEN `temporalidad == "long"` → SQL usa `GROUP BY DATE_TRUNC('month', ...)`, rango 365 días
+- WHEN `temporalidad == "short"` → SQL usa `GROUP BY transaction_date`, rango 30 días, `periodos` es `list[ShortPeriodMetrics]`
+- WHEN `temporalidad == "medium"` → SQL usa `GROUP BY DATE_TRUNC('week', ...)`, rango 180 días (6 meses), `periodos` es `list[MediumPeriodMetrics]`
+- WHEN `temporalidad == "long"` → SQL usa `GROUP BY DATE_TRUNC('month', ...)`, rango 365 días, `periodos` es `list[LongPeriodMetrics]`
 - WHEN N07/N08 tienen `error_detail: "not_implemented_v1"` → ignorados silenciosamente, sin warning
 - WHEN N09 tiene `status: "success"` → `parallel_summary.n09_available: true`, datos incluidos
 - WHEN N09 tiene `status: "error"` o `"timeout"` → `parallel_summary.n09_available: false`, `n09_result: null`
-- WHEN `mepia_memory` tiene chunk `node_origin: "onboarding"` → `brand_identity.retrieved: true`
+- WHEN `mepia_memory` tiene chunk `node_origin: "onboarding"` → `brand_identity.retrieved: true`, recuperado por SQL directo
 - WHEN no hay chunk de onboarding → `brand_identity.fallback_used: true`, contenido genérico
 - WHEN `needs_human_review = true` en transacciones → excluidas del rollup SQL
-- WHEN N10 completa → `Enriched_Audit_Payload` entregado a N11, nunca `ParallelGatherResult` crudo
+- WHEN `historical_context` supera 1,500 tokens → truncado antes de incluir en payload
+- WHEN N10 completa → `EnrichedAuditPayload` persistido en `audit_results` antes de entregar a N11
+- WHEN N10 completa → N11 recibe `EnrichedAuditPayload`, nunca `ParallelGatherResult` crudo
 
 ---
 
 ## Edge Cases
 
-- `temporalidad` no enviado → default `"short"`, no error
-- N09 timeout → `n09_available: false`, N11 recibe advertencia en `all_warnings`
+- `temporalidad` no enviado → default `"short"` (heredado de `OrchestratorRunPayload`)
+- N09 timeout → `n09_available: false`, warning en `all_warnings`, N10 continúa
 - `mepia_memory` vacío (negocio nuevo) → `brand_identity.fallback_used: true`, análisis continúa
 - Sin transacciones en el rango → `time_series.periodos: []`, N11 recibe contexto vacío con nota
 - `MemoryService` no disponible → `historical_context: ""`, `brand_identity.retrieved: false`, continúa
+- SQL rollup falla → `node_status: "partial"`, `time_series.periodos: []`, N11 notificado
 
 ---
 
@@ -284,20 +398,25 @@ Este nodo introduce `temporalidad` como campo nuevo. Los siguientes contratos de
 
 | ID | Propiedad |
 |----|-----------|
-| P1 | `temporalidad == "short"` → `time_series.granularidad == "dia"` siempre |
-| P2 | `temporalidad == "medium"` → `time_series.granularidad == "semana"` siempre |
-| P3 | `temporalidad == "long"` → `time_series.granularidad == "mes"` siempre |
+| P1 | `temporalidad == "short"` → `time_series.granularidad == "dia"` y `periodos` es `list[ShortPeriodMetrics]` |
+| P2 | `temporalidad == "medium"` → `time_series.granularidad == "semana"` y `periodos` es `list[MediumPeriodMetrics]` |
+| P3 | `temporalidad == "long"` → `time_series.granularidad == "mes"` y `periodos` es `list[LongPeriodMetrics]` |
 | P4 | N07/N08 con `error_detail: "not_implemented_v1"` → `all_warnings` no incluye mención de ellos |
-| P5 | `Enriched_Audit_Payload.forensic_report` == `ParallelGatherResult.sequential_context.forensic_report` |
+| P5 | `EnrichedAuditPayload.forensic_report` == `ParallelGatherResult.sequential_context.forensic_report` |
 | P6 | `brand_identity.retrieved: true` → `brand_identity.fallback_used: false` siempre |
 | P7 | `build_duration_ms` siempre > 0 y presente en el output |
 | P8 | Transacciones con `needs_human_review = true` nunca aparecen en `time_series.periodos` |
+| P9 | `historical_context` nunca supera 1,500 tokens en el payload entregado a N11 |
+| P10 | `EnrichedAuditPayload` siempre persistido en `audit_results` antes de retornar a N06 |
+| P11 | `brand_identity` recuperada por SQL directo — nunca por búsqueda semántica |
+| P12 | `ContextBuilderInput.temporalidad` no existe — se lee de `parallel_gather_result.temporalidad` |
 
 ---
 
 ## Archivos relacionados de este nodo
 - `n06_orchestrator_adk.md` — `ParallelGatherResult` (input)
 - `n05_ceo_orchestrator.md` — `OrchestratorRunPayload` (origen de `temporalidad`)
-- `n11_consultor.md` — consumidor del `Enriched_Audit_Payload`
+- `n11_consultor.md` — consumidor del `EnrichedAuditPayload`
 - `mem_memory_layer.md` — `MemoryService.get_context()` + chunk `node_origin: "onboarding"`
-- `_glossary.md` — contratos `Enriched_Audit_Payload`, `TimeSeriesRollup`, `BrandIdentityBlock`
+- `db_schema.md` — `mepia_memory.source_audit_run_id` nullable
+- `_glossary.md` — contratos `EnrichedAuditPayload`, `TimeSeriesRollup`, `BrandIdentityBlock`, `MemoryChunk`
