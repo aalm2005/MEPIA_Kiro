@@ -372,3 +372,26 @@ fallback_used: bool      # true si se usó identidad genérica
 ```
 > Recuperado con SQL directo: `WHERE metadata->>'node_origin' = 'onboarding' AND business_id = :id`
 > En V1 se inserta manualmente. En versiones posteriores lo genera el onboarding automáticamente.
+
+### DraftReport (output de N11 — input de N12/N13)
+```
+layer3_run_id: UUID
+business_id: UUID
+date: date
+archetype: "Operative Genius" | "Product Purist" | "Growth Hacker"
+temporalidad: "short" | "medium" | "long"
+executive_summary: string        # máx 2 frases directas al dueño
+operational_narrative: string    # hallazgos traducidos a realidades físicas
+pragmatic_actions: PragmaticAction[]  # 1–3 acciones, nunca más
+model_used: string
+generated_at: datetime
+generation_duration_ms: int
+draft_status: "draft"            # siempre "draft" — N12/N13 lo validan
+```
+
+### PragmaticAction
+```
+action: string                   # descripción directa, sin jerga corporativa
+priority: "immediate" | "this_week" | "this_month"
+owner: string                    # quién ejecuta (ej. "barista líder", "dueño")
+```

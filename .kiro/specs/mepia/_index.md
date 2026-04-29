@@ -58,7 +58,7 @@
 | N08  | Cumplimiento PLD        | Parallel   | `n08_pld.md`               | skipped_v1  |
 | N09  | Auditoría Gastos        | Parallel   | `n09_gastos.md`            | ✅ req done |
 | N10  | Context Builder (Layer 3)| Loop      | `n10_context_builder.md`   | ✅ req done |
-| N11  | Consultor Especialista  | Loop       | `n11_consultor.md`         | pendiente   |
+| N11  | Consultor Especialista (Core Auditor) | Loop | `n11_consultor.md`         | ✅ req done |
 | N12  | Phrase Expander         | Loop       | `n12_phrase_expander.md`   | pendiente   |
 | N13  | Revisor de Calidad      | Loop       | `n13_revisor.md`           | pendiente   |
 | N14  | Informe Final           | Loop       | `n14_informe_final.md`     | pendiente   |
@@ -74,6 +74,7 @@
 - **ForensicReport** → `s4_auditoria_ia.md`
 - **AuditInsight** → `n05_ceo_orchestrator.md` (generado por N05, no por S4)
 - **Enriched_Audit_Payload** → `n10_context_builder.md`
+- **DraftReport** → `n11_consultor.md`
 - **OrchestratorResult** → `n05_ceo_orchestrator.md`
 - **AgentResult** → `agents/base_agent.py`
 - **MemoryChunk** → `mem_memory_layer.md`
