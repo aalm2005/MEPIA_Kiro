@@ -13,8 +13,11 @@ críticos sobre cualquier otro elemento.
 
 | Ruta | Componente raíz | Propósito |
 |------|-----------------|-----------|
-| `/app/upload` | `UploadPage` | Ingesta de documentos (POS + facturas) |
-| `/app/dashboard` | `DashboardPage` | Presentación del análisis forense |
+| `/app/upload` | `UploadPage` | Ingesta de documentos (POS + facturas) + selector de arquetipo |
+| `/app/dashboard` | `DashboardPage` | Presentación del análisis forense + Layer 2 si escaló |
+| `/app/onboarding` | `OnboardingPage` | Configuración inicial del negocio (prerequisito de Layer 3) |
+
+**V1 — Auth:** Sin pantalla de login. El sistema arranca con un `business_id` hardcodeado en `.env.local`. La autenticación real se implementa en V2.
 
 ## Artefactos de diseño
 
@@ -24,8 +27,8 @@ Este documento es el índice. El detalle está distribuido en archivos hermanos:
 |---------|-----------|
 | `design_components.md` | Árbol de componentes React, props, contratos de UI |
 | `design_system.md` | Design system: `tailwind.config.ts`, paleta, tipografía, tokens |
-| `design_wireframes.md` | Wireframing lógico del dashboard y upload |
-| `design_flows.md` | Flujo de interacción completo: ingesta → análisis → pantalla |
+| `design_wireframes.md` | Wireframing lógico del dashboard, upload y onboarding |
+| `design_flows.md` | Flujo de interacción completo: onboarding → ingesta → análisis → pantalla |
 
 ## Principios de diseño
 
@@ -36,19 +39,19 @@ Este documento es el índice. El detalle está distribuido en archivos hermanos:
 
 ## Decisiones de arquitectura
 
-- Todas las rutas son **Server Components** por defecto; solo los formularios de upload usan `"use client"`
-- El dashboard consume `OrchestratorResult` vía `GET /orchestrator/status/{run_id}` o datos persistidos en Supabase
-- `AuditTable.tsx` se extiende para soportar `AuditInsight[]` (N05) además de `AgentResult[]` (paralelos)
-- El estado de carga del pipeline se refleja en tiempo real con polling o Supabase Realtime
+- Server Components por defecto; solo formularios de upload y onboarding usan `"use client"`
+- Dashboard consume `OrchestratorResult` vía polling o Supabase Realtime
+- `AuditTable.tsx` soporta `AuditInsight[]` (N05) y `AgentResult[]` (paralelos)
+- **V1 — Sin auth:** `NEXT_PUBLIC_BUSINESS_ID` en `.env.local` se inyecta en todas las llamadas a la API
 
 ## Contratos de UI relevantes
 
-Los contratos de datos que la UI consume directamente:
-
 - `AuditInsight` — generado por N05, renderizado en `AuditTable`
-- `ForensicReport.risk_level` — determina el banner de alerta global del dashboard
+- `ForensicReport.risk_level` — determina el banner de alerta global
 - `OrchestratorResult.pipeline_status` — controla el estado de carga
-- `POSIngestResult` / `FacturaIngestResult` — feedback post-upload en `/upload`
+- `OrchestratorResult.escalation` — activa `Layer2Banner` y nodo `[L2]`
+- `POSIngestResult` / `FacturaIngestResult` — feedback post-upload
+- `OnboardingStatusResponse.onboarding_complete` — controla `OnboardingGate`
 
 Ver `_glossary.md` para los contratos completos.
 
@@ -58,3 +61,12 @@ Ver `_glossary.md` para los contratos completos.
 - `design_system.md` — cargar para configurar Tailwind y tokens visuales
 - `design_wireframes.md` — cargar para entender el layout antes de implementar
 - `design_flows.md` — cargar para implementar la lógica de interacción y estados
+
+## Gaps cubiertos (v1.1)
+
+| Gap | Solución |
+|-----|----------|
+| `/app/onboarding` inexistente | Ruta, componentes, wireframe y flujo agregados |
+| Selector de arquetipo CEO | `ArchetypeSelector` en `/app/upload` antes del CTA |
+| Layer 2 sin representación | `Layer2Banner` + nodo `[L2]` en `PipelineStatusBar` |
+| Auth V1 | Sin login — `NEXT_PUBLIC_BUSINESS_ID` en `.env.local` |
