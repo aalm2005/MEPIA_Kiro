@@ -18,6 +18,24 @@ interface ArchetypeSelectorProps {
 3 tarjetas seleccionables. Activa: `border-emerald-500 bg-zinc-800`.
 Inactivas: `border-zinc-700 opacity-60`. Default: `"Operative Genius"`.
 
+### `ReviewAlert.tsx`
+
+```typescript
+interface ReviewAlertProps {
+  documentType: "pos" | "factura"
+  fileId: string
+  missingFields: string[]
+  onReviewed: () => void
+}
+```
+
+Reutilizable para ambos tipos de documento. Muestra los `missing_fields` como lista
+editable. Al confirmar llama:
+- POS: `PATCH /ingest/pos/{file_id}/review`
+- Factura: `PATCH /ingest/factura/{file_id}/review`
+
+El endpoint se selecciona automáticamente según `documentType`.
+
 ### `OnboardingGate.tsx`
 
 Server Component. Llama `GET /business/{id}/onboarding/status`.
