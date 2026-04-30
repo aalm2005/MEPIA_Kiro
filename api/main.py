@@ -2,6 +2,18 @@
 MEPIA — FastAPI backend
 Expone /ingest y /audit al frontend Next.js
 """
+import sys
+import os
+from pathlib import Path
+
+# Agrega tanto la raíz del proyecto (para agents/, utils/) como api/ (para core/)
+# al path de Python, sin importar desde dónde se corra uvicorn.
+_ROOT = Path(__file__).resolve().parent.parent   # MEPIA-V2/
+_API  = Path(__file__).resolve().parent          # MEPIA-V2/api/
+for _p in [str(_ROOT), str(_API)]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 import asyncio
 from dataclasses import asdict
 

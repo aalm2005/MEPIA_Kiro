@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "dev"  # "dev" | "prod"
 
     model_config = SettingsConfigDict(
-        env_file="api/.env",        # archivo exclusivo del backend Python
+        env_file=["api/.env", ".env"],  # funciona tanto desde raíz como desde api/
         env_file_encoding="utf-8",
         case_sensitive=True,        # las keys son case-sensitive por convención
         extra="ignore",             # ignora variables no declaradas en el modelo
