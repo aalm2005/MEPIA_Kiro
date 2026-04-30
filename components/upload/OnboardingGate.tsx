@@ -27,24 +27,27 @@ function OnboardingRequiredBanner() {
 
 async function getOnboardingStatus(): Promise<boolean> {
   const businessId = process.env.NEXT_PUBLIC_BUSINESS_ID;
-  const baseUrl =
-    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const agentsUrl =
+    process.env.AGENTS_API_URL ?? "http://localhost:8000";
 
   try {
     const res = await fetch(
-      `${baseUrl}/api/onboarding/status?business_id=${businessId}`,
+      `${agentsUrl}/business/${businessId}/onboarding/status`,
       { cache: "no-store" }
     );
 
     if (!res.ok) {
-      return false;
+      // 404 = negocio no encontrado en DB → onboarding incompleto
+      // Cualquier otro error de red → dejar pasar para no bloquear al usuario
+      if (res.status === 404) return false;
+      return true; // backend caído → no bloquear
     }
 
     const data: OnboardingStatusResponse = await res.json();
     return data.onboarding_complete === true;
   } catch {
-    // Network error or any other failure → treat as incomplete (safe default)
-    return false;
+    // Backend Python no disponible → no bloquear al usuario
+    return true;
   }
 }
 

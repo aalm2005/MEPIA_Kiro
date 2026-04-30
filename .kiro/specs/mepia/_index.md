@@ -46,8 +46,9 @@
 
 | ID   | Nodo                    | Capa       | Archivo                    | Estado      |
 |------|-------------------------|------------|----------------------------|-------------|
-| S1   | Ingesta (5 inputs)      | Sequential | `s1_ingesta.md`            | ✅ req done  |
-| N02  | Facturas Proveedor Input| Sequential | `n02_facturas_input.md`    | ✅ req done  |
+| S1   | Ingesta (5 inputs)      | Sequential | `s1_ingesta.md`            | 🔧 in dev   |
+| N01  | POS PDF Input           | Sequential | `n01_pos_pdf_input.md`     | ✅ done      |
+| N02  | Facturas Proveedor Input| Sequential | `n02_facturas_input.md`    | ✅ done      |
 | N03  | Human Input Endpoints   | Sequential | `n03_human_input_endpoints.md` | ✅ req done |
 | S2   | Stand-by / Gatekeeper   | Sequential | `s2_gatekeeper.md`         | ✅ req done  |
 | S3   | Motor de Cálculo        | Sequential | `s3_motor_calculo.md`      | ✅ req done  |
@@ -101,8 +102,8 @@
 
 | Spec          | Archivo de código                        |
 |---------------|------------------------------------------|
-| N01           | `api/main.py` + `app/api/upload/route.ts`|
-| N02           | `api/main.py` → `POST /ingest/factura`   |
+| N01           | `api/main.py` + `agents/pos_parser.py` + `app/api/upload/route.ts`|
+| N02           | `api/main.py` → `POST /ingest/factura` + `agents/factura_parser.py`|
 | N03           | `api/main.py` → `/transactions`, `/cash-counts`, `/onboarding` |
 | N05           | `api/main.py` → `POST /orchestrator/run`, `GET /orchestrator/status/{run_id}` |
 | N06           | `agents/parallel_orchestrator.py` → LangGraph StateGraph / LCEL RunnableParallel |
