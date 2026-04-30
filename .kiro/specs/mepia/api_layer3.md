@@ -26,17 +26,44 @@ de forma explícita desde el frontend o desde un worker asíncrono.
 
 ```python
 class Layer3RunPayload(BaseModel):
-    audit_run_id: str    # UUID del run de Layer 2 (layer2_run_id)
-                         # El endpoint lo usa para recuperar el contexto de Supabase
+    audit_run_id: str              # UUID del run de Layer 2 (layer2_run_id)
+                                   # El endpoint lo usa para recuperar el contexto de Supabase
+
+    # ── Parámetros opcionales para ejecución aislada ──────────────────────────
+    # Cuando se omiten, el backend genera UUIDs temporales con prefijo "isolated_"
+    # para inicializar Layer3State sin depender del orquestador N05.
+    # Útil para: testing de Layer 3 en aislamiento, demos, debugging de N11/N13.
+    layer2_run_id: Optional[str] = None       # si None → genera "isolated_{uuid4()}"
+    sequential_run_id: Optional[str] = None   # si None → genera "isolated_{uuid4()}"
+```
+
+**Modo normal (con `audit_run_id`):**
+El endpoint consulta `audit_results` para reconstruir el contexto completo de Layer 2.
+`layer2_run_id` y `sequential_run_id` se ignoran si `audit_run_id` está presente.
+
+**Modo aislado (sin `audit_run_id`, con IDs opcionales o sin ellos):**
+El endpoint no consulta `audit_results`. Usa los IDs proporcionados o genera temporales.
+`business_id`, `date` y `archetype` deben incluirse en el body en este modo.
+
+```python
+class Layer3IsolatedPayload(Layer3RunPayload):
+    """Extensión para ejecución aislada — requerida cuando audit_run_id es None."""
+    business_id: str
+    date: str                      # ISO-8601 YYYY-MM-DD
+    archetype: str                 # "Operative Genius" | "Product Purist" | "Growth Hacker"
+    enriched_payload: dict = {}    # EnrichedAuditPayload pre-construido (opcional)
 ```
 
 **Response 202 — Aceptado:**
 ```json
 {
-  "layer3_run_id": "uuid-v4",
-  "audit_run_id":  "uuid-v4",
-  "status":        "running",
-  "started_at":    "2024-01-15T22:20:00Z"
+  "layer3_run_id":    "uuid-v4",
+  "audit_run_id":     "uuid-v4 | null",
+  "layer2_run_id":    "uuid-v4 | isolated_uuid-v4",
+  "sequential_run_id":"uuid-v4 | isolated_uuid-v4",
+  "execution_mode":   "normal | isolated",
+  "status":           "running",
+  "started_at":       "2024-01-15T22:20:00Z"
 }
 ```
 
@@ -48,10 +75,11 @@ class Layer3RunPayload(BaseModel):
 
 | HTTP | Condición |
 |------|-----------|
-| 404  | `audit_run_id` no existe en `audit_results` |
-| 409  | Ya existe un `layer3_run_id` para este `audit_run_id` — idempotencia |
+| 404  | `audit_run_id` proporcionado pero no existe en `audit_results` |
+| 409  | Ya existe un `layer3_run_id` para este `audit_run_id` — idempotencia (solo modo normal) |
 | 422  | `audit_run_id` inválido (no es UUID) |
-| 503  | Supabase no disponible al construir el estado inicial |
+| 422  | Modo aislado sin `business_id`, `date` o `archetype` |
+| 503  | Supabase no disponible al construir el estado inicial (solo modo normal) |
 
 ---
 
@@ -138,46 +166,69 @@ Recupera el `FinalReport` completo una vez que el grafo completó.
 
 ## Construcción del Estado Inicial
 
-El endpoint consulta Supabase para reconstruir el contexto antes de invocar el grafo:
+El endpoint tiene dos rutas de construcción según el modo de ejecución:
 
 ```python
-async def build_initial_state(audit_run_id: str, db) -> Layer3State:
+async def build_initial_state(payload: Layer3RunPayload | Layer3IsolatedPayload, db) -> Layer3State:
     """
-    Construye el Layer3State inicial consultando audit_results.
+    Construye el Layer3State inicial.
 
-    1. Recupera el registro de Layer 2 (layer2_run_id, sequential_run_id,
-       business_id, date, archetype) desde audit_results WHERE run_id = audit_run_id
-    2. Genera un nuevo layer3_run_id
-    3. Retorna el estado inicial con campos de control en sus valores por defecto
+    Modo normal (audit_run_id presente):
+      1. Consulta audit_results WHERE run_id = audit_run_id AND node_id = 'N06'
+      2. Extrae layer2_run_id, sequential_run_id, business_id, date, archetype
+      3. Genera nuevo layer3_run_id
+
+    Modo aislado (audit_run_id ausente):
+      1. Usa layer2_run_id y sequential_run_id del payload, o genera "isolated_{uuid4()}"
+      2. Usa business_id, date, archetype del payload directamente
+      3. Genera nuevo layer3_run_id
+      4. No consulta Supabase — no lanza 503 por DB no disponible
     """
-    row = await db.fetchone(
-        "SELECT * FROM audit_results WHERE run_id = :run_id AND node_id = 'N06'",
-        {"run_id": audit_run_id}
-    )
-    if not row:
-        raise HTTPException(status_code=404, detail="audit_run_id no encontrado")
+    layer3_run_id = str(uuid4())
+
+    if payload.audit_run_id:
+        # ── Modo normal ───────────────────────────────────────────────────────
+        row = await db.fetchone(
+            "SELECT * FROM audit_results WHERE run_id = :run_id AND node_id = 'N06'",
+            {"run_id": payload.audit_run_id}
+        )
+        if not row:
+            raise HTTPException(status_code=404, detail="audit_run_id no encontrado")
+
+        layer2_run_id    = str(row["run_id"])
+        sequential_run_id = str(row.get("sequential_run_id", ""))
+        business_id      = str(row["business_id"])
+        date             = str(row["date"])
+        archetype        = row["archetype"]
+        enriched_payload = {}
+        execution_mode   = "normal"
+
+    else:
+        # ── Modo aislado ──────────────────────────────────────────────────────
+        layer2_run_id    = payload.layer2_run_id or f"isolated_{uuid4()}"
+        sequential_run_id = payload.sequential_run_id or f"isolated_{uuid4()}"
+        business_id      = payload.business_id
+        date             = payload.date
+        archetype        = payload.archetype
+        enriched_payload = getattr(payload, "enriched_payload", {})
+        execution_mode   = "isolated"
 
     return {
-        "layer3_run_id":    str(uuid4()),
-        "layer2_run_id":    str(row["run_id"]),
-        "sequential_run_id": str(row.get("sequential_run_id", "")),
-        "business_id":      str(row["business_id"]),
-        "date":             str(row["date"]),
-        "archetype":        row["archetype"],
-
-        # N10 construye este campo como primer paso del grafo
-        "enriched_payload": {},
-
-        # Borrador — None hasta que N11 lo genere
-        "draft_report": None,
-
-        # Control del loop — valores iniciales
-        "intentos_critico":    0,
-        "feedback_critico":    None,
+        "layer3_run_id":     layer3_run_id,
+        "layer2_run_id":     layer2_run_id,
+        "sequential_run_id": sequential_run_id,
+        "business_id":       business_id,
+        "date":              date,
+        "archetype":         archetype,
+        "enriched_payload":  enriched_payload,
+        "draft_report":      None,
+        "intentos_critico":  0,
+        "feedback_critico":  None,
         "historial_feedback":  [],
         "tipos_falla_critico": [],
-        "draft_status":        "pending",
-        "audit_results":       [],
+        "draft_status":      "pending",
+        "audit_results":     [],
+        "_execution_mode":   execution_mode,   # campo de trazabilidad, no parte de Layer3State
     }
 ```
 
@@ -214,13 +265,17 @@ async def run_layer3(payload: Layer3RunPayload, background_tasks: BackgroundTask
 
 ## Acceptance Criteria
 
-- WHEN `audit_run_id` válido → endpoint responde 202 e inicia el grafo en background
-- WHEN mismo `audit_run_id` enviado dos veces → HTTP 409, no re-ejecutar el grafo
+- WHEN `audit_run_id` válido → endpoint responde 202 e inicia el grafo en background (`execution_mode: "normal"`)
+- WHEN `audit_run_id` omitido + `business_id`/`date`/`archetype` presentes → modo aislado, `layer2_run_id` y `sequential_run_id` generados con prefijo `isolated_`
+- WHEN `audit_run_id` omitido + `layer2_run_id` proporcionado → usar el proporcionado, no generar temporal
+- WHEN modo aislado sin `business_id` → HTTP 422
+- WHEN mismo `audit_run_id` enviado dos veces (modo normal) → HTTP 409, no re-ejecutar el grafo
 - WHEN `audit_run_id` no existe → HTTP 404 antes de invocar el grafo
 - WHEN grafo completa → `GET /status` retorna `status: "completed"` con `draft_status`
 - WHEN grafo falla → `GET /status` retorna `status: "failed"` con `error_detail`
 - WHEN `GET /result` antes de completar → HTTP 409
 - WHEN `layer3_app` importado en `api/main.py` → no hay `StateGraph` instanciado en ese archivo
+- WHEN modo aislado → `execution_mode: "isolated"` en la respuesta 202
 
 ---
 

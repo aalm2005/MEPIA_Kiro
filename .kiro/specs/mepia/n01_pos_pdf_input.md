@@ -1,13 +1,17 @@
-# N01 — POS PDF Input
+# N01 — POS PDF Input (Ingesta de Ticket de Ventas)
 
-**Capa:** Sequential | **Parte de:** S1 Ingesta | **Siguiente nodo:** S2 Gatekeeper
-**Archivos relacionados:** `api/main.py`, `db_schema.md`
-**Enfoque:** API-First / Headless — sin dependencias de UI
+**Capa:** Sequential | **Parte de:** S1 Ingesta | **Siguiente:** S2 Gatekeeper
+**Archivo de implementación:** `api/main.py` → `POST /ingest/pos`
+**Archivos relacionados:** `db_schema.md`, `s2_gatekeeper.md`, `_glossary.md`
+
+---
 
 ## Input / Output
 
-- **Input:** Archivo PDF vía `multipart/form-data` — cualquier cliente HTTP
-- **Output:** `POSIngestResult` → ver contrato en `_glossary.md`
+- **Input:** PDF multipart + `business_id` UUID
+- **Output:** `POSIngestResult[]` — un objeto por día detectado en el PDF
+
+---
 
 ## Endpoint
 
@@ -15,138 +19,177 @@
 
 **Request:** `multipart/form-data`
 
-| Campo         | Tipo   | Requerido | Descripción                        |
-|---------------|--------|-----------|------------------------------------|
-| `file`        | File   | ✅        | Archivo PDF del ticket POS         |
-| `business_id` | UUID   | ✅        | Negocio al que pertenece el ticket |
+| Campo         | Tipo | Requerido | Descripción                        |
+|---------------|------|-----------|------------------------------------|
+| `file`        | File | ✅        | PDF del ticket POS                 |
+| `business_id` | UUID | ✅        | Negocio propietario del ticket     |
 
-**Response 200 — extracción exitosa:**
+**Manejo de múltiples días:** Si el PDF contiene datos de N días distintos, el backend
+fragmenta el contenido y retorna un array de N objetos `POSIngestResult`, uno por día.
+Cada objeto es independiente y se persiste por separado en `pos_inputs`.
+
+**Response 200 — extracción exitosa (un día):**
 ```json
-{
-  "file_id": "uuid-v4",
-  "storage_path": "pos-tickets/{business_id}/{date}/{file_id}.pdf",
-  "extraction_status": "success",
-  "needs_human_review": false,
-  "uploaded_at": "2024-01-15T22:00:00Z",
-  "extracted_data": {
-    "business_name": "Café Mepia",
-    "period": "2024-01-15",
-    "totals": { "cash": 3200.00, "card": 1950.00, "total": 5150.00 }
+[
+  {
+    "file_id": "uuid-v4",
+    "storage_path": "pos-tickets/{business_id}/2024-01-15/{file_id}.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-01-15T22:00:00Z",
+    "date": "2024-01-15",
+    "totals": {
+      "cash": 3200.00,
+      "card": 1950.00,
+      "total": 5150.00
+    },
+    "payment_methods": {
+      "cash": 3200.00,
+      "card": 1950.00,
+      "other": 0.00
+    },
+    "line_items": [
+      { "description": "Café Latte", "quantity": 42, "unit_price": 65.00 }
+    ],
+    "ocr_confidence": {
+      "totals": 0.97,
+      "payment_methods": 0.95,
+      "line_items": 0.83
+    }
   }
-}
+]
 ```
 
-**Response 200 — fallback requerido:**
+**Response 200 — revisión humana requerida:**
 ```json
-{
-  "file_id": "uuid-v4",
-  "storage_path": "pos-tickets/{business_id}/{date}/{file_id}.pdf",
-  "extraction_status": "fallback_required",
-  "needs_human_review": false,
-  "uploaded_at": "2024-01-15T22:00:00Z",
-  "extracted_data": null
-}
+[
+  {
+    "file_id": "uuid-v4",
+    "storage_path": "pos-tickets/{business_id}/2024-01-15/{file_id}.pdf",
+    "extraction_status": "needs_human_review",
+    "needs_human_review": true,
+    "uploaded_at": "2024-01-15T22:00:00Z",
+    "date": null,
+    "totals": null,
+    "payment_methods": null,
+    "line_items": null,
+    "ocr_confidence": { "totals": 0.71, "payment_methods": 0.68, "line_items": null },
+    "missing_fields": ["totals", "payment_methods"]
+  }
+]
 ```
 
 **Códigos de error:**
 
-| HTTP | Condición                                      |
-|------|------------------------------------------------|
-| 422  | MIME ≠ `application/pdf`                       |
-| 413  | Archivo > 20 MB                                |
-| 422  | Archivo vacío (0 bytes)                        |
-| 422  | PDF corrupto o con contraseña                  |
-| 404  | `business_id` no existe                        |
-| 503  | Storage de Supabase no disponible              |
+| HTTP | Condición |
+|------|-----------|
+| 404  | `business_id` no existe en `businesses` |
+| 413  | Archivo > 20 MB |
+| 422  | MIME ≠ `application/pdf`, 0 bytes, PDF corrupto o con contraseña |
+| 503  | Supabase Storage no disponible |
 
 ---
 
-### `PATCH /ingest/pos/{file_id}/metadata`
+## Contrato de Campos Obligatorios
 
-Envía los datos del ticket manualmente cuando `extraction_status: "fallback_required"`.
-Cable suelto para la futura UI o cualquier cliente que quiera resolver el fallback.
+Los siguientes campos son **obligatorios** para que el Gatekeeper S2 active la métrica
+`calc_cash_reconciliation`. Si alguno falta, `needs_human_review: true`.
 
-**Request body — `POSMetadataPayload`:**
+| Campo | Umbral de confianza OCR | Consecuencia si falla |
+|---|---|---|
+| `date` | 90% | `needs_human_review: true` |
+| `totals.total` | 90% | `needs_human_review: true` |
+| `totals.cash` | 90% | `needs_human_review: true` |
+| `totals.card` | 90% | `needs_human_review: true` |
+| `payment_methods.*` | 90% | `needs_human_review: true` |
+| `line_items[*]` | 80% | Línea omitida, resto continúa |
 
-```python
-class POSTotals(BaseModel):
-    cash: Decimal = Field(ge=0, decimal_places=2)
-    card: Decimal = Field(ge=0, decimal_places=2)
-    total: Decimal = Field(gt=0, decimal_places=2)
+**Regla de líneas individuales:** La confianza del 80% para `line_items` es intencional.
+El CFO Forense (S4) valida matemáticamente que la suma de líneas coincida con `totals.total`.
+Si no coincide, S4 lo registra como anomalía `source_discrepancy`.
 
-class POSMetadataPayload(BaseModel):
-    business_name: str = Field(min_length=1, max_length=255)
-    period: date                                    # ISO-8601 YYYY-MM-DD
-    totals: POSTotals
+---
+
+## Contrato `POSIngestResult` (actualización del glosario)
+
 ```
-
-**Response 200:**
-```json
-{
-  "file_id": "uuid-v4",
-  "extraction_status": "success",
-  "needs_human_review": false
+file_id: UUID                    → documents.id
+storage_path: string             → documents.storage_path
+extraction_status: "success" | "needs_human_review"
+needs_human_review: bool
+uploaded_at: datetime (UTC ISO-8601)
+date: date | null                → fecha de operación del ticket
+totals: {
+  cash: Decimal
+  card: Decimal
+  total: Decimal
+} | null
+payment_methods: {
+  cash: Decimal
+  card: Decimal
+  other: Decimal                 → default 0.00
+} | null
+line_items: LineItem[] | null
+ocr_confidence: {
+  totals: float | null           → 0.0–1.0
+  payment_methods: float | null
+  line_items: float | null
 }
+missing_fields: string[] | null  → campos que no alcanzaron el umbral
 ```
 
-**Códigos de error:**
+### `LineItem`
+```
+description: string
+quantity: int
+unit_price: Decimal
+```
 
-| HTTP | Condición                                                    |
-|------|--------------------------------------------------------------|
-| 404  | `file_id` no existe                                          |
-| 409  | Documento ya tiene `extraction_status: "success"`            |
-| 422  | Validación Pydantic fallida                                  |
+---
 
 ## Persistencia
 
-| Campo del resultado     | Se guarda en                  |
-|-------------------------|-------------------------------|
-| `file_id`               | `documents.id`                |
-| `storage_path`          | `documents.storage_path`      |
-| `extracted_data` (crudo)| `documents.extracted_data`    |
-| `ocr_status`            | `documents.ocr_status`        |
-| `business_name`, `period`, `totals` | `pos_inputs` (tras normalización) |
+| Campo del resultado | Tabla destino | Columna |
+|---|---|---|
+| `file_id` | `documents` | `id` |
+| `storage_path` | `documents` | `storage_path` |
+| `extraction_status` | `documents` | `ocr_status` |
+| `ocr_confidence.totals` | `documents` | `ocr_confidence` |
+| `needs_human_review` | `documents` | `needs_human_review` |
+| `date`, `totals`, `payment_methods` | `pos_inputs` | campos estructurados |
+| `line_items` | `documents` | `extracted_data` (JSONB) |
+
+---
 
 ## Acceptance Criteria
 
-**Subida y persistencia**
-- WHEN PDF válido recibido → persistir en Storage `pos-tickets/{business_id}/{date}/{file_id}.pdf`
-- WHEN persistido → retornar `POSIngestResult` con `file_id` (UUID v4), `storage_path`, `uploaded_at` (UTC ISO-8601)
+- WHEN PDF con un solo día → retornar array de 1 `POSIngestResult`
+- WHEN PDF con N días → retornar array de N objetos, uno por día, cada uno persistido en `pos_inputs`
+- WHEN confianza de `totals` < 90% → `needs_human_review: true`, `extraction_status: "needs_human_review"`
+- WHEN confianza de `line_items` < 80% → omitir esa línea, continuar con el resto
+- WHEN `line_items` presentes → S4 puede validar que su suma ≈ `totals.total` (tolerancia 1%)
+- WHEN mismo SHA-256 + `business_id` → retornar resultado original sin duplicar en Storage
+- WHEN PDF con contraseña → HTTP 422
 
-**Validación**
-- WHEN MIME ≠ `application/pdf` → HTTP 422
-- WHEN tamaño > 20 MB → HTTP 413
-- WHEN 0 bytes → HTTP 422
-- WHEN PDF corrupto → HTTP 422 (sin excepción no manejada)
-- WHEN Storage caído → HTTP 503 + log con stack trace
+---
 
-**Extracción automática**
-- WHEN tablas reconocibles → extraer `business_name`, `period`, `totals`; `extraction_status: "success"`
-- WHEN extracción parcial → poblar campos extraídos, `null` solo en los fallidos
-- WHEN sin tablas / imagen escaneada → `extraction_status: "fallback_required"`, `extracted_data: null`
+## Edge Cases
 
-**Fallback manual vía API**
-- WHEN `fallback_required` → cliente llama `PATCH /ingest/pos/{file_id}/metadata` con datos manuales
-- WHEN metadata manual recibida para `file_id` existente → actualizar registro, `extraction_status: "success"`
-- WHEN `period` en formato incorrecto → HTTP 422
+- PDF multi-página: extraer de todas las páginas, agrupar por fecha detectada
+- Ticket sin desglose de métodos de pago: `payment_methods: null`, `needs_human_review: true`
+- `totals.cash + totals.card ≠ totals.total` (discrepancia en el propio PDF): registrar en `extracted_data.raw_metadata`, continuar
+- Fecha ambigua (ej. "15/01" sin año): inferir año del contexto del archivo, si no es posible → `needs_human_review: true`
 
-**Deduplicación**
-- WHEN mismo SHA-256 + mismo `business_id` subido N veces → retornar POSIngestResult original, sin duplicar en Storage
+---
 
 ## Correctness Properties (PBT)
 
 | ID | Propiedad |
 |----|-----------|
-| P1 | `file_id`, `filename`, `uploaded_at`, `storage_path`, `extraction_status` siempre no nulos en todo POSIngestResult |
-| P2 | `deserialize(serialize(result)) == result` (round-trip JSON) |
-| P3 | Mismo SHA-256 + `business_id` → exactamente 1 objeto en Storage |
-| P4 | Archivo inválido → HTTP 4xx + `errors` con al menos 1 mensaje |
-| P5 | Extracción parcial → campos extraídos no nulos, solo los fallidos en `null` |
-| P6 | `fallback_required` automático → `business_name`, `period`, `totals` todos `null` |
-
-## Edge Cases
-
-- PDF con contraseña → tratar como corrupto (HTTP 422)
-- PDF de múltiples páginas → extraer de primera página con tablas
-- Timeout de Storage > 30s → HTTP 503
-- `totals` con valores negativos → aceptar y registrar warning
+| P1 | `file_id`, `storage_path`, `uploaded_at`, `extraction_status` siempre presentes en todo resultado |
+| P2 | `needs_human_review: true` ↔ al menos un campo obligatorio con confianza < 90% |
+| P3 | PDF con N días → array de exactamente N objetos, cada uno con `date` distinto |
+| P4 | `deserialize(serialize(result)) == result` (round-trip JSON) |
+| P5 | Mismo SHA-256 + `business_id` → exactamente 1 objeto en Storage |
+| P6 | `line_items` con confianza < 80% → nunca aparecen en el resultado |
+| P7 | `ocr_confidence.totals >= 0.90` → `needs_human_review: false` (si no hay otros campos faltantes) |

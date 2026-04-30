@@ -129,19 +129,25 @@ def build_layer3_graph(memory_service: MemoryService) -> ...:
 ## Estado Inicial — Construcción en el Endpoint
 
 El endpoint `POST /api/audit/layer3/run` es el responsable de construir el
-`Layer3State` inicial antes de llamar `.invoke()`. N14 nunca recibe un estado
-parcialmente construido.
+`Layer3State` inicial antes de llamar `.invoke()`. Soporta dos modos:
+
+**Modo normal** (`audit_run_id` presente): consulta `audit_results` para reconstruir
+el contexto de Layer 2. Verifica que el negocio tenga onboarding completo (HTTP 412 si no).
+
+**Modo aislado** (`audit_run_id` ausente): usa `business_id`, `date` y `archetype`
+del body directamente. Genera `layer2_run_id` y `sequential_run_id` con prefijo
+`isolated_` si no se proporcionan. Útil para testing y debugging de Layer 3 en aislamiento.
 
 ```python
 # Estructura del estado inicial (construido por el endpoint)
 initial_state: Layer3State = {
-    # Trazabilidad — leída de audit_results por audit_run_id
-    "layer3_run_id":    str(uuid4()),
-    "layer2_run_id":    layer2_run_id,
-    "sequential_run_id": sequential_run_id,
-    "business_id":      business_id,
-    "date":             date_str,
-    "archetype":        archetype,
+    # Trazabilidad — leída de audit_results (modo normal) o del body (modo aislado)
+    "layer3_run_id":     str(uuid4()),
+    "layer2_run_id":     layer2_run_id,        # puede tener prefijo "isolated_"
+    "sequential_run_id": sequential_run_id,    # puede tener prefijo "isolated_"
+    "business_id":       business_id,
+    "date":              date_str,
+    "archetype":         archetype,
 
     # Payload de datos — EnrichedAuditPayload serializado (construido por N10)
     # Se pasa vacío; N10 lo construye como primer paso del grafo
@@ -157,12 +163,16 @@ initial_state: Layer3State = {
     "tipos_falla_critico": [],
     "draft_status":        "pending",
     "audit_results":       [],
+
+    # Output terminal — None hasta que N14 ejecute
+    "final_response": None,
 }
 ```
 
-> **Nota:** `enriched_payload` se inicializa vacío porque N10 es el primer nodo
-> del grafo y lo construye internamente. El endpoint solo necesita pasar los
-> campos de trazabilidad para que N10 sepa qué datos recuperar de Supabase.
+> **Prerequisito de onboarding:** Antes de construir el estado inicial, el endpoint
+> verifica que `mepia_memory` tenga un chunk `node_origin: "onboarding"` para el
+> `business_id`. Si no existe → HTTP 412 con `error: "onboarding_required"`.
+> Ver: `n10_onboarding_identidad.md` y `api_layer3.md`.
 
 ---
 
@@ -187,6 +197,8 @@ initial_state: Layer3State = {
 - WHEN N11 es reejecutado → lee `feedback_critico` del estado para corregir el borrador
 - WHEN `api/main.py` importa `layer3_app` → no hay instanciación de `StateGraph` en ese archivo
 - WHEN el grafo completa → `Layer3State.draft_status` es `"approved"` o `"approved_with_warning"` — nunca `"pending"` o `"rejected"`
+- WHEN modo aislado → `layer2_run_id` y `sequential_run_id` tienen prefijo `"isolated_"` si no se proporcionaron
+- WHEN negocio sin onboarding → HTTP 412 antes de invocar el grafo, nunca llega a N10
 
 ---
 
@@ -199,6 +211,8 @@ initial_state: Layer3State = {
 | P3 | `draft_status` al llegar a END es siempre `"approved"` o `"approved_with_warning"` |
 | P4 | `enriched_payload` nunca vacío cuando N11 ejecuta (N10 lo construye primero) |
 | P5 | `layer3_app` es el único grafo compilado exportado desde `layer3_graph.py` |
+| P6 | Modo aislado: `layer2_run_id` contiene prefijo `"isolated_"` si no fue proporcionado |
+| P7 | Negocio sin onboarding → HTTP 412, `layer3_app.ainvoke()` nunca llamado |
 
 ---
 

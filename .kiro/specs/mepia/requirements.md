@@ -44,8 +44,27 @@ MEPIA (Mise En Place Artificial Intelligence) es un copiloto financiero para due
 - El sistema debe mantener memoria RAG persistente entre sesiones de auditoría
 - Ver spec detallado: `mem_memory_layer.md`
 
+### 8. Autenticación y Autorización
+- Todos los endpoints del backend deben validar el JWT de sesión de Supabase Auth
+- La autorización verifica que el `user_id` extraído del token tiene acceso al `business_id` solicitado
+- El backend usa `SUPABASE_SERVICE_ROLE_KEY` (bypass RLS) — la autorización es responsabilidad del código Python
+- Ver spec detallado: `_auth_strategy.md`
+
+### 9. Onboarding de Identidad del Negocio
+- Antes de ejecutar Layer 3, el negocio debe completar el onboarding de identidad
+- El onboarding inyecta el "Lente del CEO" en `mepia_memory` y registra umbrales de auditoría
+- Si el onboarding no está completo, `POST /api/audit/layer3/run` retorna HTTP 412
+- Ver spec detallado: `n10_onboarding_identidad.md`
+
+### 10. Ingesta de POS con múltiples días
+- El endpoint `POST /ingest/pos` debe fragmentar PDFs multi-día y retornar un array de resultados
+- Umbral de confianza OCR: 90% para totales y métodos de pago, 80% para líneas individuales
+- Ver spec detallado: `n01_pos_pdf_input.md`
+
 ## Archivos de spec relacionados
 
 - `_index.md` — mapa completo del pipeline y estado de cada nodo
 - `_glossary.md` — contratos de datos y términos de dominio
 - `db_schema.md` — schema de base de datos híbrido
+- `_auth_strategy.md` — estrategia transversal de autenticación y autorización
+- `n10_onboarding_identidad.md` — prerequisito de Layer 3: onboarding de identidad del negocio

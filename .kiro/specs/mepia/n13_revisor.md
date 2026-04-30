@@ -82,7 +82,8 @@ al final de `DraftReport.operational_narrative` antes de pasar a N14.
 
 ## Guardado en Memoria
 
-Solo cuando `aprobado == true`: llama a `MemoryService.store_memory()` con:
+Solo cuando `aprobado == true`: llama a `MemoryService.store_memory()` con `await` directo
+(parte del contrato del nodo — no es best-effort):
 
 ```python
 MemoryChunk(
@@ -93,7 +94,9 @@ MemoryChunk(
 )
 ```
 
-Guardado asíncrono (`asyncio.create_task`) — no bloquea el grafo.
+> **Decisión de implementación:** Se usa `await` directo, no `asyncio.create_task`.
+> El guardado en memoria es parte del contrato de N13 — si falla, el nodo retorna
+> `approved_with_warning` en lugar de `approved`. No es una operación best-effort.
 
 ---
 

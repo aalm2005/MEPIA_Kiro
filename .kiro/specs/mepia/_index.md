@@ -66,6 +66,8 @@
 | API3 | API Layer 3 Endpoint    | API        | `api_layer3.md`            | ✅ req done |
 | COST | Estrategia de Costos    | Transversal| `cost_strategy.md`         | ✅ req done |
 | MEM  | Memory Layer            | Transversal| `mem_memory_layer.md`      | ✅ req done |
+| AUTH | Autenticación y Autorización | Transversal | `_auth_strategy.md`   | ✅ req done |
+| ONB  | Onboarding de Identidad | Transversal| `n10_onboarding_identidad.md` | ✅ req done |
 
 - **POSIngestResult** → `n01_pos_pdf_input.md`
 - **FacturaIngestResult** → `n02_facturas_input.md`
@@ -84,6 +86,16 @@
 - **OrchestratorResult** → `n05_ceo_orchestrator.md`
 - **AgentResult** → `agents/base_agent.py`
 - **MemoryChunk** → `mem_memory_layer.md`
+
+## Diseño Frontend (Fase 2)
+
+| Archivo | Contenido | Estado |
+|---------|-----------|--------|
+| `design.md` | Índice del diseño frontend — rutas, principios, decisiones de arquitectura | ✅ req done |
+| `design_components.md` | Árbol de componentes React, props, contratos de UI | ✅ req done |
+| `design_system.md` | `tailwind.config.ts`, paleta brutalista, tokens de color y tipografía | ✅ req done |
+| `design_wireframes.md` | Wireframing lógico de `/dashboard` y `/upload` | ✅ req done |
+| `design_flows.md` | Flujo de interacción completo: ingesta → pipeline → pantalla | ✅ req done |
 
 ## Archivos de implementación (referencia)
 
