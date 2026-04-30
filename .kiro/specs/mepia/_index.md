@@ -62,9 +62,10 @@
 | N12  | Phrase Expander         | Loop       | `n12_phrase_expander.md`   | skipped_v1  |
 | N13  | Revisor de Calidad (Critic & Enforcer) | Loop | `n13_revisor.md` | ✅ req done |
 | N14  | Informe Final           | Loop       | `n14_informe_final.md`     | ✅ req done |
+| L3G  | Layer 3 Graph           | Loop       | `layer3_graph.md`          | ✅ req done |
+| API3 | API Layer 3 Endpoint    | API        | `api_layer3.md`            | ✅ req done |
+| COST | Estrategia de Costos    | Transversal| `cost_strategy.md`         | ✅ req done |
 | MEM  | Memory Layer            | Transversal| `mem_memory_layer.md`      | ✅ req done |
-
-## Contratos de datos clave
 
 - **POSIngestResult** → `n01_pos_pdf_input.md`
 - **FacturaIngestResult** → `n02_facturas_input.md`
@@ -77,6 +78,8 @@
 - **DraftReport** → `n11_consultor.md`
 - **CriticVerdict** → `n13_revisor.md`
 - **FinalResponse** → `n14_informe_final.md`
+- **FinalReport** → `n14_informe_final.md`
+- **Layer3RunPayload** → `api_layer3.md`
 - **Layer3State** → `agents/layer3_state.py`
 - **OrchestratorResult** → `n05_ceo_orchestrator.md`
 - **AgentResult** → `agents/base_agent.py`
@@ -99,7 +102,9 @@
 | N11 consultor       | `agents/core_auditor.py`                 |
 | N13 revisor         | `agents/n13_revisor.py`                  |
 | N14 informe final   | `agents/n14_informe_final.py`            |
+| Layer 3 Graph       | `agents/layer3_graph.py`                 |
 | Layer 3 State       | `agents/layer3_state.py`                 |
+| API Layer 3         | `api/main.py` → `POST /api/audit/layer3/run`, `GET /api/audit/layer3/status/{id}`, `GET /api/audit/layer3/result/{id}` |
 | MEM MemoryService   | `utils/memory_service.py`                |
 
 ## Schema de base de datos

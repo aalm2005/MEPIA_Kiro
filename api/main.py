@@ -9,12 +9,20 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 
 from agents import CashReconciliationAgent, OperativeCostAgent, BusinessHealthAgent
+from core.config import settings
 
 app = FastAPI(title="MEPIA Agents API")
 
+# En prod, reemplazar por el dominio real del frontend.
+_ALLOWED_ORIGINS = (
+    ["http://localhost:3000"]
+    if settings.ENVIRONMENT == "dev"
+    else ["https://mepia.app"]  # ajustar al dominio de producción
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

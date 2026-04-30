@@ -1,131 +1,159 @@
-# N14 — Informe Final
+# N14 — Informe Final (Nodo de Persistencia y Entrega)
 
-**Capa:** Layer 3 — Nodo 4 (terminal) | **Anterior:** N13 Revisor | **Siguiente:** —
+**Capa:** Layer 3 — Nodo final | **Anterior:** N13 Revisor de Calidad | **Siguiente:** END
 **Archivo de implementación:** `agents/n14_informe_final.py`
-**Tipo:** Determinista — sin llamadas a LLM. Empaquetador puro.
-**Archivos relacionados:** `n13_revisor.md`, `agents/layer3_state.py`, `_glossary.md`
+**Tipo:** Python puro — sin LLM, 100% determinista
+**Patrón:** Nodo pasivo de persistencia y formateo
+
+> N14 es el nodo terminal del grafo Layer 3. No genera texto ni toma decisiones.
+> Su única responsabilidad es tomar el `DraftReport` aprobado del `Layer3State`,
+> formatearlo para entrega y persistirlo en `audit_results`.
 
 ---
 
 ## Input / Output
 
-**Input:** `Layer3State` con `draft_report`, `draft_status`, `audit_results`
-**Output:** Actualización de estado: `final_response` (dict) + entrada en `audit_results`
+**Input:** `Layer3State` con `draft_report` aprobado y `draft_status` en
+`"approved"` o `"approved_with_warning"`.
+
+**Output:** `FinalReport` persistido en `audit_results` + actualización del estado
+con `layer3_status: "completed"`.
 
 ---
 
 ## Responsabilidad
 
-Nodo terminal del grafo Layer 3. No llama a ningún LLM. Extrae del estado los
-artefactos validados por N13 y los empaqueta en `final_response`, el contrato
-que consume el frontend/cliente.
-
----
-
-## Contrato de Salida — `FinalResponse`
-
-```python
-{
-  "report_markdown": str,          # contenido de draft_report
-  "status": str,                   # contenido de draft_status
-  "has_warnings": bool,            # True si draft_status == "approved_with_warning"
-  "metadata": {
-    "generated_at": str,           # timestamp UTC en formato ISO-8601
-    "audit_trail": List[Dict]      # historial completo de audit_results
-  }
-}
+```
+Layer3State (draft_report aprobado)
+        │
+        ↓
+N14 Informe Final (Python puro)
+  ├─ Extrae DraftReport del estado
+  ├─ Fija model_used = "claude-3-5-sonnet-20241022"
+  ├─ Construye FinalReport (separa narrativa Markdown y metadatos)
+  ├─ Persiste FinalReport en audit_results (node_id: "N14")
+  └─ Retorna layer3_status: "completed"
+        │
+        ↓
+END (grafo completado)
 ```
 
 ---
 
-## Actualización de `Layer3State`
+## Decisión de LLM
+
+**N14 NO usa LLM.** Es un nodo Python puro y determinista.
+
+El campo `model_used` en el `FinalReport` se fija estáticamente a
+`"claude-3-5-sonnet-20241022"` — el modelo que generó el borrador en N11.
+Si N11 activó el fallback, el valor correcto ya está registrado en
+`DraftReport.model_used` y N14 lo propaga sin modificarlo.
+
+---
+
+## Contrato de Salida — `FinalReport`
 
 ```python
-{
-  "final_response": FinalResponse,
-  "audit_results": audit_results + [entrada_n14]  # append del paso N14
-}
+class FinalReport(BaseModel):
+    # Trazabilidad
+    layer3_run_id: str
+    business_id: str
+    date: str
+    archetype: str
+    temporalidad: str
+
+    # Contenido formateado para entrega al frontend
+    executive_summary: str           # tomado directamente de DraftReport
+    operational_narrative_md: str    # narrativa en formato Markdown (headers, bullets)
+    pragmatic_actions: list[dict]    # lista de acciones con priority y owner
+
+    # Metadatos de calidad
+    draft_status: str                # "approved" | "approved_with_warning"
+    model_used: str                  # propagado desde DraftReport.model_used
+    intentos_critico: int            # número de revisiones que requirió el borrador
+    quality_warnings: list[str]      # historial_feedback del Layer3State si hubo rechazos
+
+    # Metadatos de generación
+    finalized_at: str                # ISO-8601 UTC
+    layer3_duration_ms: int          # duración total del grafo Layer 3
 ```
 
-La entrada de N14 en `audit_results` sigue el mismo patrón que N13:
-```python
-{
-  "node": "N14",
-  "status": "completed",
-  "timestamp": "<ISO UTC>",
-  "final_status": draft_status
-}
+### Regla de formateo de `operational_narrative_md`
+
+N14 convierte el `operational_narrative` (texto plano de N11) a Markdown estructurado:
+
+```
+## Hallazgos del período
+
+{operational_narrative}
+
+---
+*Generado por MEPIA · {date} · Arquetipo: {archetype}*
+```
+
+Si `draft_status == "approved_with_warning"`, agrega al final:
+
+```
+> ⚠️ Este reporte contiene advertencias de calidad no resueltas.
+> Revisar manualmente antes de tomar decisiones.
 ```
 
 ---
 
-## Lógica de `has_warnings`
+## Persistencia en `audit_results`
 
-```python
-has_warnings = (draft_status == "approved_with_warning")
-```
+N14 persiste el `FinalReport` como el registro terminal del pipeline Layer 3.
 
-Valor `True` solo cuando el cortafuegos de N13 se activó (`intentos_critico >= 2`).
-El frontend usa este flag para mostrar un banner de advertencia al dueño.
-
----
-
-## Ensamblaje del Grafo (StateGraph)
-
-```python
-from langgraph.graph import StateGraph, END
-
-graph = StateGraph(Layer3State)
-
-graph.add_node("n11_consultor",    n11_node)
-graph.add_node("n13_revisor",      n13_node)
-graph.add_node("n14_informe_final", n14_node)
-
-graph.set_entry_point("n11_consultor")
-
-graph.add_edge("n11_consultor", "n13_revisor")
-
-graph.add_conditional_edges(
-    "n13_revisor",
-    route_n13,          # función de enrutamiento — lee draft_status del estado
-    {
-        "approved":              "n14_informe_final",   # Ruta A
-        "rejected":              "n11_consultor",       # Ruta B — reintento
-        "approved_with_warning": "n14_informe_final",   # Ruta C — cortafuegos
-    }
-)
-
-graph.add_edge("n14_informe_final", END)
-
-compiled_graph = graph.compile()
-```
+| Campo           | Valor |
+|-----------------|-------|
+| `run_id`        | `layer3_run_id` |
+| `business_id`   | FK → businesses |
+| `date`          | Fecha auditada |
+| `pipeline_layer`| `"loop"` |
+| `node_id`       | `"N14"` |
+| `module`        | `"informe_final"` |
+| `archetype`     | Arquetipo del run |
+| `raw_result`    | `FinalReport` serializado (JSON) |
+| `copilot_phrase`| `executive_summary` del `FinalReport` |
+| `node_status`   | `"success"` \| `"failed"` |
 
 ---
 
 ## Acceptance Criteria
 
-- WHEN N14 ejecuta → `final_response["report_markdown"]` == `draft_report` exacto
-- WHEN `draft_status == "approved_with_warning"` → `has_warnings == True`
-- WHEN `draft_status == "approved"` → `has_warnings == False`
-- WHEN N14 ejecuta → `final_response["metadata"]["generated_at"]` es timestamp UTC válido
-- WHEN N14 ejecuta → `final_response["metadata"]["audit_trail"]` contiene todos los `audit_results` previos + entrada de N14
-- WHEN N14 ejecuta → exactamente 1 entrada nueva en `audit_results` con `node == "N14"`
-- WHEN N14 ejecuta → ninguna llamada a LLM ni operación de red
+- WHEN `draft_status == "approved"` → `FinalReport` sin advertencias de calidad
+- WHEN `draft_status == "approved_with_warning"` → `quality_warnings` contiene el historial de rechazos y el Markdown incluye el bloque de advertencia
+- WHEN N14 completa → `layer3_status: "completed"` en el estado del grafo
+- WHEN N14 completa → `FinalReport` persistido en `audit_results` antes de retornar END
+- WHEN `DraftReport.model_used` contiene `"fallback"` → N14 lo propaga sin modificar
+- WHEN N14 falla al persistir → `node_status: "failed"`, error reportado al endpoint disparador
+
+---
+
+## Edge Cases
+
+- `draft_report` vacío o nulo en el estado → `node_status: "failed"`, no persistir
+- Supabase no disponible → reintentar 1 vez, luego `node_status: "failed"` con detalle
+- `draft_status` inesperado (ni `"approved"` ni `"approved_with_warning"`) → log error, persistir con advertencia
+
+---
 
 ## Correctness Properties (PBT)
 
 | ID | Propiedad |
 |----|-----------|
-| P1 | `final_response["report_markdown"]` == `state["draft_report"]` siempre |
-| P2 | `has_warnings == True` ↔ `draft_status == "approved_with_warning"` |
-| P3 | `audit_trail` contiene exactamente `len(audit_results_previos) + 1` entradas |
-| P4 | `generated_at` es ISO-8601 UTC válido y posterior a `draft_report.generated_at` |
-| P5 | N14 nunca modifica `draft_report`, `draft_status` ni ningún campo de control del loop |
+| P1 | `FinalReport.draft_status` == `Layer3State.draft_status` siempre |
+| P2 | `draft_status == "approved_with_warning"` → `quality_warnings` nunca vacío |
+| P3 | `draft_status == "approved"` → `quality_warnings` siempre vacío |
+| P4 | `model_used` propagado desde `DraftReport.model_used` — nunca sobreescrito por N14 |
+| P5 | `layer3_status: "completed"` solo cuando `FinalReport` persistido exitosamente |
+| P6 | N14 nunca modifica `executive_summary` ni `pragmatic_actions` — solo formatea `operational_narrative` |
 
 ---
 
 ## Archivos relacionados de este nodo
-- `agents/n14_informe_final.py` — implementación completa
-- `agents/layer3_state.py` — definición del `Layer3State` (agregar `final_response`)
-- `n13_revisor.md` — origen de `draft_status` y lógica de enrutamiento
-- `_glossary.md` — contratos `DraftReport`, `FinalResponse`, `Layer3State`
+- `agents/n14_informe_final.py` — implementación
+- `agents/layer3_state.py` — `Layer3State` (input)
+- `agents/layer3_graph.py` — grafo que conecta N14 con END
+- `n13_revisor.md` — nodo anterior (produce el `draft_report` aprobado)
+- `_glossary.md` — contrato `FinalReport`
