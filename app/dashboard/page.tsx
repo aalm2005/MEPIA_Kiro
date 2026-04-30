@@ -1,47 +1,91 @@
-import AuditTable, { AuditRow } from "@/components/AuditTable";
+"use client";
 
-// Datos de ejemplo — en producción vienen del endpoint FastAPI /api/audit
-const mockRows: AuditRow[] = [
-  {
-    module: "Conciliación de Caja",
-    raw_result: "Discrepancia detectada: -$150.00 MXN vs Ticket POS.",
-    copilot_phrase:
-      "Hay una fuga en el flujo de efectivo. Los tickets marcados no coinciden con el depósito reportado.",
-    archetype: "Operative Genius",
-  },
-  {
-    module: "Gasto Operativo",
-    raw_result: "Incremento del 12% en compra de leche deslactosada.",
-    copilot_phrase:
-      "Tu costo de insumos está subiendo más rápido que tus ventas. Revisa el desperdicio en barra.",
-    archetype: "Product Purist",
-  },
-  {
-    module: "Salud del Negocio",
-    raw_result: "Margen de utilidad neta: 18%.",
-    copilot_phrase:
-      "Eres eficiente, pero la inconsistencia en extracciones de espresso está afectando tu recompra.",
-    archetype: "Operative Genius",
-  },
-];
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { useAuditPolling } from "@/hooks/useAuditPolling";
+import { AuditHeader } from "@/components/dashboard/AuditHeader";
+import { PipelineStatusBar } from "@/components/dashboard/PipelineStatusBar";
+import { Layer2Banner } from "@/components/dashboard/Layer2Banner";
+import { ForensicSummary } from "@/components/dashboard/ForensicSummary";
+import { DormantMetricsList } from "@/components/dashboard/DormantMetricsList";
+import AuditTable from "@/components/AuditTable";
+
+function DashboardContent() {
+  const searchParams = useSearchParams();
+  const runId = searchParams.get("run_id");
+
+  const { result, pipelineStatus, currentNode, layer2Status, error } =
+    useAuditPolling(runId);
+
+  const riskLevel =
+    result?.sequential_results.forensic_report.risk_level ?? "low";
+  const date = result?.date;
+  const isEscalated = result?.escalation.triggered === true;
+
+  return (
+    <div className="min-h-screen bg-zinc-900 px-6 py-10 max-w-6xl mx-auto">
+      {/* AuditHeader — full width */}
+      <div className="mb-4">
+        <AuditHeader riskLevel={riskLevel} date={date} />
+      </div>
+
+      {/* PipelineStatusBar — full width */}
+      <div className="mb-4">
+        <PipelineStatusBar
+          status={pipelineStatus ?? "idle"}
+          currentNode={currentNode ?? undefined}
+          layer2Status={layer2Status ?? undefined}
+        />
+      </div>
+
+      {/* Layer2Banner — conditional */}
+      {isEscalated && layer2Status && (
+        <div className="mb-4">
+          <Layer2Banner layer2Status={layer2Status} />
+        </div>
+      )}
+
+      {/* Error state */}
+      {error && (
+        <div className="mb-4 bg-red-950/30 border border-red-700 text-red-400 rounded p-4 text-sm font-mono">
+          {error}
+        </div>
+      )}
+
+      {/* Loading state */}
+      {pipelineStatus === null && !error && (
+        <p className="text-muted text-sm mb-4">Iniciando análisis...</p>
+      )}
+
+      {/* Main layout: 65% table | 35% side panel */}
+      <div className="flex gap-6 items-start">
+        {/* AuditTable — 65% */}
+        <div className="flex-[65]">
+          <AuditTable
+            rows={result?.sequential_results.audit_insights ?? []}
+            isLoading={!result && !error}
+            emptyMessage="Sin resultados de auditoría"
+          />
+        </div>
+
+        {/* Side panel — 35% */}
+        <div className="flex-[35] flex flex-col gap-4">
+          <ForensicSummary
+            anomalies={result?.sequential_results.forensic_report.anomalies ?? []}
+          />
+          <DormantMetricsList
+            metrics={result?.dormant_metrics ?? []}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   return (
-    <div className="min-h-screen bg-zinc-900 px-6 py-10 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="mb-8">
-        <p className="text-emerald-400 text-xs tracking-widest uppercase mb-1">Copiloto Financiero</p>
-        <h1 className="text-2xl font-semibold text-zinc-100">Reporte de Auditoría</h1>
-        <p className="text-zinc-500 text-sm mt-1">Última actualización: hoy · 3 módulos analizados</p>
-      </div>
-
-      {/* Tabla principal */}
-      <AuditTable rows={mockRows} />
-
-      {/* Footer hint */}
-      <p className="text-zinc-600 text-xs mt-6 text-center">
-        Los insights son generados por agentes IA según tu arquetipo de operación.
-      </p>
-    </div>
+    <Suspense fallback={<div className="text-muted text-sm p-10">Cargando...</div>}>
+      <DashboardContent />
+    </Suspense>
   );
 }

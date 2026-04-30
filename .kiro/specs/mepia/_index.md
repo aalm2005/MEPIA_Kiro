@@ -59,12 +59,15 @@
 | N09  | Auditoría Gastos        | Parallel   | `n09_gastos.md`            | ✅ req done |
 | N10  | Context Builder (Layer 3)| Loop      | `n10_context_builder.md`   | ✅ req done |
 | N11  | Consultor Especialista (Core Auditor) | Loop | `n11_consultor.md`         | ✅ req done |
-| N12  | Phrase Expander         | Loop       | `n12_phrase_expander.md`   | pendiente   |
-| N13  | Revisor de Calidad      | Loop       | `n13_revisor.md`           | pendiente   |
-| N14  | Informe Final           | Loop       | `n14_informe_final.md`     | pendiente   |
+| N12  | Phrase Expander         | Loop       | `n12_phrase_expander.md`   | skipped_v1  |
+| N13  | Revisor de Calidad (Critic & Enforcer) | Loop | `n13_revisor.md` | ✅ req done |
+| N14  | Informe Final           | Loop       | `n14_informe_final.md`     | ✅ req done |
+| L3G  | Layer 3 Graph           | Loop       | `layer3_graph.md`          | ✅ req done |
+| API3 | API Layer 3 Endpoint    | API        | `api_layer3.md`            | ✅ req done |
+| COST | Estrategia de Costos    | Transversal| `cost_strategy.md`         | ✅ req done |
 | MEM  | Memory Layer            | Transversal| `mem_memory_layer.md`      | ✅ req done |
-
-## Contratos de datos clave
+| AUTH | Autenticación y Autorización | Transversal | `_auth_strategy.md`   | ✅ req done |
+| ONB  | Onboarding de Identidad | Transversal| `n10_onboarding_identidad.md` | ✅ req done |
 
 - **POSIngestResult** → `n01_pos_pdf_input.md`
 - **FacturaIngestResult** → `n02_facturas_input.md`
@@ -75,9 +78,24 @@
 - **AuditInsight** → `n05_ceo_orchestrator.md` (generado por N05, no por S4)
 - **Enriched_Audit_Payload** → `n10_context_builder.md`
 - **DraftReport** → `n11_consultor.md`
+- **CriticVerdict** → `n13_revisor.md`
+- **FinalResponse** → `n14_informe_final.md`
+- **FinalReport** → `n14_informe_final.md`
+- **Layer3RunPayload** → `api_layer3.md`
+- **Layer3State** → `agents/layer3_state.py`
 - **OrchestratorResult** → `n05_ceo_orchestrator.md`
 - **AgentResult** → `agents/base_agent.py`
 - **MemoryChunk** → `mem_memory_layer.md`
+
+## Diseño Frontend (Fase 2)
+
+| Archivo | Contenido | Estado |
+|---------|-----------|--------|
+| `design.md` | Índice del diseño frontend — rutas, principios, decisiones de arquitectura | ✅ req done |
+| `design_components.md` | Árbol de componentes React, props, contratos de UI | ✅ req done |
+| `design_system.md` | `tailwind.config.ts`, paleta brutalista, tokens de color y tipografía | ✅ req done |
+| `design_wireframes.md` | Wireframing lógico de `/dashboard` y `/upload` | ✅ req done |
+| `design_flows.md` | Flujo de interacción completo: ingesta → pipeline → pantalla | ✅ req done |
 
 ## Archivos de implementación (referencia)
 
@@ -93,6 +111,13 @@
 | S3            | `agents/calc_engine.py`                  |
 | S4 forensic CFO     | `agents/forensic_cfo.py`                 |
 | N10 context builder | `agents/context_builder.py`              |
+| N11 consultor       | `agents/core_auditor.py`                 |
+| N13 revisor         | `agents/n13_revisor.py`                  |
+| N14 informe final   | `agents/n14_informe_final.py`            |
+| Layer 3 Graph       | `agents/layer3_graph.py`                 |
+| Layer 3 State       | `agents/layer3_state.py`                 |
+| API Layer 3         | `api/main.py` → `POST /api/audit/layer3/run`, `GET /api/audit/layer3/status/{id}`, `GET /api/audit/layer3/result/{id}` |
+| MEM MemoryService   | `utils/memory_service.py`                |
 
 ## Schema de base de datos
 
@@ -107,3 +132,18 @@ Al implementar un nodo, cargar SOLO:
 1. `_index.md` + `_glossary.md`
 2. El archivo del nodo específico
 3. Los archivos de código directamente relacionados
+
+---
+
+## Arquitectura de LLMs (Decisión fija — V1)
+
+Estrategia híbrida OpenAI + Anthropic. Variables de entorno obligatorias: `OPENAI_API_KEY` + `ANTHROPIC_API_KEY`.
+
+| Nodo | Modelo | Proveedor | Rol |
+|------|--------|-----------|-----|
+| S4 Forensic CFO | `gpt-4o` | OpenAI | Diagnóstico forense, structured output |
+| N05 CEO Orchestrator | `gpt-4o` | OpenAI | Síntesis estratégica con arquetipo |
+| N09 Copilot Phrase | `gpt-4o-mini` | OpenAI | Frase de soporte, no crítico |
+| N11 Consultor | `claude-3-5-sonnet-20241022` | Anthropic (primario) | Redacción narrativa — el reporte que lee el dueño |
+| N11 Fallback | `gpt-4o` | OpenAI | Activado si Anthropic no está disponible |
+| N13 Revisor | `gpt-4o` | OpenAI | Verificación matemática, structured output |

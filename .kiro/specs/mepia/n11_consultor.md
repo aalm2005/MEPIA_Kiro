@@ -1,9 +1,60 @@
 # N11 — Consultor Especialista (Core Auditor LLM)
 
-**Capa:** Layer 3 — Nodo 2 | **Anterior:** N10 Context Builder | **Siguiente:** N12 Phrase Expander
+**Capa:** Layer 3 — Nodo 2 | **Anterior:** N10 Context Builder | **Siguiente:** N13 Revisor de Calidad
 **Archivo de implementación:** `agents/core_auditor.py`
 **Tipo:** LLM Principal (Heavy-lifter)
-**Archivos relacionados:** `n10_context_builder.md`, `n12_phrase_expander.md`, `_glossary.md`
+**Archivos relacionados:** `n10_context_builder.md`, `n13_revisor.md`, `_glossary.md`
+
+## Decisión de LLM
+
+| Campo | Valor |
+|-------|-------|
+| **Modelo primario** | `claude-3-5-sonnet-20241022` |
+| **Proveedor primario** | Anthropic |
+| **Modelo de fallback** | `gpt-4o` |
+| **Proveedor de fallback** | OpenAI |
+| **Temperatura — primer intento** | `0.7` — máxima fluidez narrativa para el reporte inicial |
+| **Temperatura — reintento** | `0.3` — precisión estricta para corregir los puntos señalados por N13 |
+| **Justificación** | Este es el nodo que genera el reporte que lee el dueño del negocio. Claude 3.5 Sonnet produce redacción narrativa más orgánica, conversacional y empática — cualidades críticas para el tono de "operador de piso" que define la identidad de MEPIA. La temperatura dinámica balancea creatividad en el primer intento con disciplina correctiva en los reintentos. |
+| **Variables de entorno requeridas** | `ANTHROPIC_API_KEY` (primario) + `OPENAI_API_KEY` (fallback) |
+
+> **Temperatura dinámica (decisión fija — reemplaza el 0.4 anterior):**
+> - `feedback_critico is None` → temperatura `0.7` (primer intento, narrativa fluida)
+> - `feedback_critico is not None` → temperatura `0.3` (reintento, corrección precisa)
+> El LLM se instancia con la temperatura correcta según el estado antes de cada invocación.
+
+### Estrategia de Fallback (Resiliencia del Pipeline)
+
+N11 implementa un fallback automático a `gpt-4o` usando LangChain `with_fallbacks()`:
+
+```python
+from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
+
+# Temperatura dinámica según si es primer intento o reintento
+temperatura = 0.7 if not state.get("feedback_critico") else 0.3
+
+llm_primary  = ChatAnthropic(model="claude-3-5-sonnet-20241022", temperature=temperatura)
+llm_fallback = ChatOpenAI(model="gpt-4o", temperature=temperatura)
+
+# LangChain maneja el fallback automáticamente si Anthropic falla
+llm = llm_primary.with_fallbacks([llm_fallback])
+```
+
+**Condiciones que activan el fallback:**
+- Timeout de la API de Anthropic (> 30s)
+- Error HTTP 5xx de Anthropic
+- `anthropic.APIConnectionError` o `anthropic.RateLimitError`
+
+**Condiciones que NO activan el fallback:**
+- JSON inválido en la respuesta (se reintenta con temperatura reducida en el mismo modelo)
+- Error de validación Pydantic (problema de prompt, no de infraestructura)
+
+**Registro en `DraftReport.model_used`:**
+- Respuesta de Claude → `"claude-3-5-sonnet-20241022"`
+- Respuesta de fallback → `"gpt-4o (fallback — anthropic_unavailable)"`
+
+Esto permite auditar en `audit_results` cuántas veces se activó el fallback por período.
 
 ---
 
@@ -11,27 +62,32 @@
 
 **Tipo:** LLM Principal (Heavy-lifter) — genera texto, no transforma datos.
 
-**Misión:** Recibir el `EnrichedAuditPayload` desde N10, cruzar los insights matemáticos
-(generados en capas previas por S4 y N05) contra el contexto histórico y la identidad de
-marca, y redactar un borrador de auditoría completo (`Draft_Report`).
+**Misión:** Recibir el `Layer3State` desde el grafo LangGraph, leer el `EnrichedAuditPayload`
+construido por N10, cruzar los insights matemáticos (generados en capas previas por S4 y N05)
+contra el contexto histórico y la identidad de marca, y redactar un borrador de auditoría
+completo (`DraftReport`). En reintentos, lee `feedback_critico` del estado para corregir
+estrictamente los puntos señalados por N13.
 
 No hace interpretación de datos plana. Genera frases conversacionales e insights accionables
-y físicos para dueños de negocios de hospitalidad. Su salida es evaluada por N12 (Phrase Expander)
-y N13 (Quality Reviewer) antes de llegar al dueño.
+y físicos para dueños de negocios de hospitalidad. Su salida es evaluada por N13 (Revisor de
+Calidad) antes de llegar al dueño.
 
 ```
-N10 EnrichedAuditPayload
+Layer3State (enriched_payload + feedback_critico)
         │
         ↓
 N11 Consultor Especialista (LLM)
+  ├─ Lee feedback_critico → determina si es primer intento o reintento
+  ├─ Ajusta temperatura (0.7 primer intento / 0.3 reintento)
+  ├─ Inyecta mensaje de corrección si feedback_critico existe
   ├─ Lee time_series → determina enfoque por temporalidad
   ├─ Lee forensic_report + audit_insights → hallazgos técnicos crudos
   ├─ Lee brand_identity → aplica Lente del CEO (tono y límites)
   ├─ Lee historical_context → causa probable antes de asumir error humano
-  └─ Redacta Draft_Report
+  └─ Redacta DraftReport
         │
         ↓
-N12 Phrase Expander
+N13 Revisor de Calidad
 ```
 
 ---
@@ -89,31 +145,74 @@ Preguntas que guían el análisis:
 
 ## Sección 3 — Estructura Exacta de Entrada y Salida
 
-### Entrada — `EnrichedAuditPayload` (output de N10)
+### Entrada — `Layer3State` (input del grafo LangGraph)
 
-N11 lee los siguientes campos del payload:
+N11 recibe el estado completo del grafo. Lee los siguientes campos:
 
 ```python
+# ── Control de reintento (del Layer3State) ────────────────────────────────────
+feedback_critico = state.get("feedback_critico")   # None en primer intento
+intentos_critico = state.get("intentos_critico", 0)
+
+# ── Payload de datos (construido por N10) ─────────────────────────────────────
+payload = state["enriched_payload"]   # EnrichedAuditPayload serializado como dict
+
 # Temporalidad — determina el modo de análisis
-temporalidad = payload.temporalidad          # "short" | "medium" | "long"
-time_series  = payload.time_series           # rollups SQL por granularidad
+temporalidad = payload["temporalidad"]          # "short" | "medium" | "long"
+time_series  = payload["time_series"]           # rollups SQL por granularidad
 
 # Hallazgos técnicos crudos
-forensic_report  = payload.forensic_report   # ForensicReport de S4 — anomalías y riesgos
-audit_insights   = payload.audit_insights    # AuditInsight[] de N05 — insights CEO-framed
+forensic_report  = payload["forensic_report"]   # ForensicReport de S4 — anomalías y riesgos
+audit_insights   = payload["audit_insights"]    # AuditInsight[] de N05 — insights CEO-framed
 
 # Identidad de marca — tono y límites
-brand_identity   = payload.brand_identity    # BrandIdentityBlock — Lente del CEO
+brand_identity   = payload["brand_identity"]    # BrandIdentityBlock — Lente del CEO
 
 # Memoria histórica — contexto de equipos y patrones recurrentes
-historical_context = payload.historical_context  # string RAG consolidado (máx 1,500 tokens)
+historical_context = payload["historical_context"]  # string RAG consolidado (máx 1,500 tokens)
 
 # Contexto operativo del día
-parallel_summary = payload.parallel_summary  # estado de N09 (gastos) y nodos paralelos
+parallel_summary = payload["parallel_summary"]  # estado de N09 (gastos) y nodos paralelos
 ```
 
 > Nota: `forensic_report` proviene de **S4 Forensic CFO**, no de N07.
 > N07 está marcado como `skipped_v1` y no existe en esta versión.
+
+### Mecanismo de Reintento — Inyección de Feedback
+
+Cuando `feedback_critico` no es `None` (es decir, N13 rechazó el borrador anterior),
+N11 inyecta dinámicamente un mensaje de corrección al final del prompt antes de invocar
+al LLM:
+
+```python
+FEEDBACK_INJECTION_TEMPLATE = """
+⚠️ REVISIÓN RECHAZADA: Tu borrador anterior no cumplió con los estándares.
+Motivos del revisor: {feedback_critico}
+Corrige estrictamente estos puntos en tu nueva redacción.
+"""
+
+# Lógica de construcción del prompt
+if feedback_critico:
+    # Reintento: temperatura reducida + mensaje de corrección
+    temperatura = 0.3
+    feedback_block = FEEDBACK_INJECTION_TEMPLATE.format(
+        feedback_critico=feedback_critico
+    )
+else:
+    # Primer intento: temperatura alta para narrativa fluida
+    temperatura = 0.7
+    feedback_block = ""
+
+# El feedback_block se agrega al final del HumanMessage, después de los datos
+human_message = f"{datos_serializados}\n\n{feedback_block}".strip()
+```
+
+**Reglas del mecanismo de reintento:**
+- El mensaje de feedback se agrega al `HumanMessage`, no al `SystemMessage`
+- El `SystemMessage` (las 4 directivas) nunca cambia entre intentos
+- La temperatura se determina antes de instanciar el LLM — no se modifica mid-run
+- `historial_feedback` del estado contiene todos los rechazos anteriores, pero N11
+  solo inyecta el último (`feedback_critico`) para no saturar el contexto
 
 ---
 
@@ -225,22 +324,30 @@ No incluyas texto fuera del JSON. No uses markdown dentro del JSON.
 
 ## Endpoint REST
 
-### `POST /layer3/consult`
+### `POST /api/audit/test/n11_consultor` ⚠️ SOLO TESTING
 
-Llamado internamente por N10 tras persistir el `EnrichedAuditPayload`.
+> **ADVERTENCIA:** Este endpoint es exclusivamente para depuración y testing aislado del nodo.
+> En producción, N11 **solo** es invocado mediante la orquestación del grafo Layer 3
+> (`agents/layer3_graph.py`). Nunca llamar este endpoint en flujos de producción.
+
+Permite probar N11 de forma aislada sin ejecutar el grafo completo. Útil para
+validar prompts, temperatura y comportamiento del fallback.
 
 **Request body:**
 ```python
-class ConsultInput(BaseModel):
-    enriched_payload: EnrichedAuditPayload   # output completo de N10
+class N11TestInput(BaseModel):
+    enriched_payload: dict          # EnrichedAuditPayload serializado
+    feedback_critico: str | None = None  # simular reintento con feedback
+    intentos_critico: int = 0       # simular número de intento
 ```
 
 **Response 200:**
 ```json
 {
-  "layer3_run_id": "uuid-v4",
-  "draft_status": "draft",
-  "generated_at": "2024-01-15T22:18:00Z",
+  "draft_report": { /* DraftReport completo */ },
+  "model_used": "claude-3-5-sonnet-20241022",
+  "temperatura_usada": 0.7,
+  "es_reintento": false,
   "generation_duration_ms": 4200
 }
 ```
@@ -249,9 +356,8 @@ class ConsultInput(BaseModel):
 
 | HTTP | Condición |
 |------|-----------|
-| 422  | `EnrichedAuditPayload` inválido o incompleto |
+| 422  | `enriched_payload` inválido o incompleto |
 | 503  | LLM no disponible o timeout |
-| 409  | Ya existe un `Draft_Report` para este `layer3_run_id` — idempotencia |
 
 ---
 
@@ -276,6 +382,8 @@ N11 persiste el `Draft_Report` antes de entregarlo a N12.
 
 ## Acceptance Criteria
 
+- WHEN `feedback_critico is None` → temperatura `0.7`, sin mensaje de corrección en el prompt
+- WHEN `feedback_critico is not None` → temperatura `0.3`, mensaje de corrección inyectado al final del `HumanMessage`
 - WHEN `temporalidad == "short"` → `operational_narrative` enfocado en fricción diaria y cierres de caja
 - WHEN `temporalidad == "medium"` → `operational_narrative` enfocado en tendencias de menú y ticket promedio
 - WHEN `temporalidad == "long"` → `operational_narrative` enfocado en salud financiera y desgaste de maquinaria
@@ -283,18 +391,19 @@ N11 persiste el `Draft_Report` antes de entregarlo a N12.
 - WHEN `historical_context` contiene mención de equipo físico → N11 lo usa como causa probable antes de asumir error humano
 - WHEN LLM genera respuesta → formato JSON válido con los 3 campos obligatorios
 - WHEN `pragmatic_actions` generadas → entre 1 y 3, nunca 0 ni más de 3
-- WHEN N11 completa → `DraftReport` persistido en `audit_results` antes de entregar a N12
+- WHEN N11 completa → `DraftReport` persistido en `audit_results` antes de pasar a N13
 - WHEN mismo `layer3_run_id` enviado dos veces → retornar resultado existente (idempotencia)
 
 ---
 
 ## Edge Cases
 
-- LLM timeout → `node_status: "failed"`, N12 no se ejecuta, error reportado al cliente
+- LLM timeout → `node_status: "failed"`, N13 no se ejecuta, error reportado al endpoint
 - `brand_identity.retrieved: false` → N11 opera sin restricciones de marca, agrega nota en `executive_summary`
 - `historical_context` vacío → N11 no asume causas históricas, analiza solo datos actuales
 - `forensic_report.anomalies` vacío → `executive_summary` refleja salud positiva del período
-- LLM genera JSON inválido → reintentar 1 vez con temperatura reducida, luego `node_status: "failed"`
+- LLM genera JSON inválido → reintentar 1 vez con temperatura reducida en el mismo modelo, luego `node_status: "failed"`
+- `feedback_critico` muy largo (> 500 chars) → truncar a 500 chars antes de inyectar en el prompt
 
 ---
 
@@ -302,19 +411,24 @@ N11 persiste el `Draft_Report` antes de entregarlo a N12.
 
 | ID | Propiedad |
 |----|-----------|
-| P1 | `DraftReport.temporalidad` == `EnrichedAuditPayload.temporalidad` siempre |
+| P1 | `DraftReport.temporalidad` == `Layer3State.enriched_payload.temporalidad` siempre |
 | P2 | `len(pragmatic_actions)` siempre entre 1 y 3 inclusive |
 | P3 | `draft_status` siempre `"draft"` — nunca `"final"` en N11 |
 | P4 | `brand_identity.retrieved: true` → ninguna `pragmatic_action` contradice `brand_identity.content` |
 | P5 | `forensic_report` referenciado es de S4, nunca de N07 |
 | P6 | Mismo `layer3_run_id` → exactamente 1 registro en `audit_results` |
 | P7 | LLM response inválida → reintento antes de `node_status: "failed"` |
+| P8 | `feedback_critico is None` → temperatura `0.7` siempre |
+| P9 | `feedback_critico is not None` → temperatura `0.3` siempre |
+| P10 | Mensaje de feedback inyectado en `HumanMessage` — nunca en `SystemMessage` |
 
 ---
 
 ## Archivos relacionados de este nodo
-- `n10_context_builder.md` — `EnrichedAuditPayload` (input)
-- `n12_phrase_expander.md` — consumidor del `DraftReport`
+- `agents/layer3_state.py` — `Layer3State` (input del nodo)
+- `n10_context_builder.md` — `EnrichedAuditPayload` (dentro del estado)
+- `n13_revisor.md` — consumidor del `DraftReport` + origen de `feedback_critico`
+- `layer3_graph.md` — grafo que orquesta N11 en el loop
 - `s4_auditoria_ia.md` — origen del `forensic_report`
 - `n05_ceo_orchestrator.md` — origen de `audit_insights`
 - `_glossary.md` — contratos `DraftReport`, `PragmaticAction`

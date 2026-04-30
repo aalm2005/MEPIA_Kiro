@@ -3,6 +3,16 @@
 **Capa:** Sequential | **Anterior:** S3 Motor de Cálculo | **Siguiente:** N05 CEO Orchestrator
 **Responsabilidad:** Diagnóstico forense de anomalías financieras. Sin recomendaciones. Sin arquetipos.
 
+## Decisión de LLM
+
+| Campo | Valor |
+|-------|-------|
+| **Modelo** | `gpt-4o` |
+| **Proveedor** | OpenAI |
+| **Temperatura** | `0` — determinismo máximo para diagnóstico forense |
+| **Justificación** | Razonamiento lógico-matemático estricto y salida estructurada (`ForensicReport`). Requiere precisión en cuantificación de anomalías y clasificación de severidad sin ambigüedad. |
+| **Variable de entorno requerida** | `OPENAI_API_KEY` |
+
 ## Separación de responsabilidades
 
 ```

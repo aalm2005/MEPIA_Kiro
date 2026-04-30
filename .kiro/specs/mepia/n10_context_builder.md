@@ -232,6 +232,10 @@ MAX_HISTORICAL_TOKENS = 1500
 Razón del límite: `Enriched_Audit_Payload` completo no debe superar ~4,000 tokens para
 dejar margen al system prompt y respuesta de N11.
 
+> **Motor de embeddings (V1 — fijo):** `text-embedding-3-small` de OpenAI, **1536 dimensiones**.
+> La búsqueda semántica en `mepia_memory` usa distancia coseno vía índice HNSW.
+> Cambiar el modelo de embeddings requiere recrear la tabla y regenerar todos los vectores existentes.
+
 ### Identidad de marca en `mepia_memory`
 
 El "Lente del CEO" se inserta en `mepia_memory` durante el onboarding:

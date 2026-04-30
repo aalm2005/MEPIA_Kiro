@@ -4,6 +4,16 @@
 **Archivo de implementación:** `agents/ceo_orchestrator.py`
 **Enfoque:** API-First / Headless — stateless, sin dependencias de UI
 
+## Decisión de LLM
+
+| Campo | Valor |
+|-------|-------|
+| **Modelo** | `gpt-4o` |
+| **Proveedor** | OpenAI |
+| **Temperatura** | `0.3` — permite variación controlada en el tono por arquetipo sin perder coherencia |
+| **Justificación** | Capacidad fuerte para adoptar el arquetipo directivo (Operative Genius / Product Purist / Growth Hacker) y generar frases CEO-framed específicas y accionables. Requiere razonamiento sobre causalidad contextual (`observed_causality`). |
+| **Variable de entorno requerida** | `OPENAI_API_KEY` |
+
 ---
 
 ## Responsabilidad

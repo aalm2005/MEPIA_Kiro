@@ -2,6 +2,18 @@
 MEPIA — FastAPI backend
 Expone /ingest y /audit al frontend Next.js
 """
+import sys
+import os
+from pathlib import Path
+
+# Agrega tanto la raíz del proyecto (para agents/, utils/) como api/ (para core/)
+# al path de Python, sin importar desde dónde se corra uvicorn.
+_ROOT = Path(__file__).resolve().parent.parent   # MEPIA-V2/
+_API  = Path(__file__).resolve().parent          # MEPIA-V2/api/
+for _p in [str(_ROOT), str(_API)]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 import asyncio
 from dataclasses import asdict
 
@@ -9,12 +21,20 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 
 from agents import CashReconciliationAgent, OperativeCostAgent, BusinessHealthAgent
+from core.config import settings
 
 app = FastAPI(title="MEPIA Agents API")
 
+# En prod, reemplazar por el dominio real del frontend.
+_ALLOWED_ORIGINS = (
+    ["http://localhost:3000"]
+    if settings.ENVIRONMENT == "dev"
+    else ["https://mepia.app"]  # ajustar al dominio de producción
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

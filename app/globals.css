@@ -1,10 +1,9 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
-
 body {
-  background-color: #18181b; /* zinc-900 */
-  color: #f4f4f5;
+  @apply bg-canvas text-zinc-100 font-sans antialiased;
 }

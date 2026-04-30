@@ -1,6 +1,14 @@
 .next/
 node_modules/
+
+# Variables de entorno — nunca subir al repo
+.env
 .env.local
+.env.prod
+.env.production
+api/.env
+**/.env
+
 __pycache__/
 *.pyc
 .venv/

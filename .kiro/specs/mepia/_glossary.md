@@ -35,6 +35,7 @@
 | Engram               | Binario Go (local)| Memoria de largo plazo (CAS). Requiere compilar el repo Engram y tener el binario en PATH. Configurado como servidor MCP en `.kiro/settings/mcp.json` con `{"command": "engram", "args": ["mcp"]}`. Expone herramientas `search` (read) y `store` (write). |
 | MemoryService        | Python (`utils/memory_service.py`) | Wrapper que abstrae pgvector + Engram. Expone `get_context()` (read, todos los agentes) y `store_memory()` (write, solo N12/N13). |
 | mepia_memory         | Supabase pgvector | Tabla de embeddings semánticos ("Brain"). Single Source of Truth para RAG. Embedding: `text-embedding-3-small` 1536 dims. FK real a `businesses`. Engram reconstruye desde aquí al reiniciar. |
+| Auth Middleware      | FastAPI Dependency | Valida JWT de Supabase Auth. Extrae `user_id` del claim `sub`. Verifica acceso a `business_id`. Ver `_auth_strategy.md`. |
 
 ## Base de datos — Tablas
 
@@ -136,14 +137,40 @@ cash_payouts: Decimal (≥ 0, default 0)
 recorded_by: UUID
 ```
 
-### OnboardingPayload
+### OnboardingPayload (DEPRECADO — reemplazado por OnboardingIdentityPayload)
 ```
+# Contrato anterior — solo para referencia histórica
+# Ver n10_onboarding_identidad.md para el contrato actual completo
 business_name: string
 industry_sector: string
 currency: string (ISO 4217, default "MXN")
 operating_hours: { open: "HH:MM", close: "HH:MM" }
 fixed_costs: FixedCostItem[] (mínimo 1)
 ```
+
+### OnboardingIdentityPayload (contrato actual — reemplaza OnboardingPayload)
+```
+brand_identity: {
+  brand_voice: string (max 500 chars)
+  prohibited_recommendations: string[]
+  priority_focus: "efficiency" | "quality" | "growth"
+}
+audit_tolerances: {
+  max_cash_discrepancy_pct: float (0–1)   # umbral porcentual de diferencia en caja
+  max_cash_discrepancy_abs: Decimal       # umbral absoluto en MXN (se usa el más permisivo)
+  margin_warning_threshold: float (0–1)   # margen neto mínimo → warning
+  margin_critical_threshold: float (0–1)  # margen neto mínimo → alerta roja
+  cost_spike_threshold_pct: float (0–1)   # incremento de costo que dispara alerta
+}
+expected_cost_structure: ExpectedCostStructure[] (mínimo 1)
+audit_rules: {
+  red_alert_triggers: string[]            # condiciones que siempre generan alerta roja
+  ignored_anomaly_types: string[]         # anomalías aceptadas como normales (default [])
+  audit_frequency: "daily" | "weekly"     # default "daily"
+}
+```
+> Spec completo: `n10_onboarding_identidad.md`
+> Prerequisito obligatorio para ejecutar Layer 3 — HTTP 412 si no está completo.
 
 ### ParallelGatherResult
 ```
@@ -222,11 +249,30 @@ date: YYYY-MM-DD
 ```
 file_id: UUID                    → documents.id
 storage_path: string             → documents.storage_path
-extraction_status: "success" | "fallback_required" | "needs_human_review"
-extracted_data: JSONB | null     → documents.extracted_data
-uploaded_at: datetime (UTC ISO-8601)
+extraction_status: "success" | "needs_human_review"
 needs_human_review: bool
+uploaded_at: datetime (UTC ISO-8601)
+date: date | null                → fecha de operación del ticket
+totals: {
+  cash: Decimal
+  card: Decimal
+  total: Decimal
+} | null
+payment_methods: {
+  cash: Decimal
+  card: Decimal
+  other: Decimal                 → default 0.00
+} | null
+line_items: LineItem[] | null    → array de ítems vendidos
+ocr_confidence: {
+  totals: float | null           → 0.0–1.0. Umbral obligatorio: 0.90
+  payment_methods: float | null  → 0.0–1.0. Umbral obligatorio: 0.90
+  line_items: float | null       → 0.0–1.0. Umbral permisivo: 0.80
+}
+missing_fields: string[] | null  → campos que no alcanzaron su umbral
 ```
+> El endpoint retorna `POSIngestResult[]` — un objeto por día detectado en el PDF.
+> Spec completo: `n01_pos_pdf_input.md`
 
 ### GatekeeperResult
 ```
@@ -394,4 +440,82 @@ draft_status: "draft"            # siempre "draft" — N12/N13 lo validan
 action: string                   # descripción directa, sin jerga corporativa
 priority: "immediate" | "this_week" | "this_month"
 owner: string                    # quién ejecuta (ej. "barista líder", "dueño")
+```
+
+### CriticVerdict (output de N13 — Structured Output del LLM)
+```
+aprobado: bool
+tipos_falla: List["ALUCINACION_MATEMATICA" | "DESVIACION_IDENTIDAD" | "NINGUNA"]
+  # Lista — permite detectar múltiples fallas simultáneas en el mismo borrador.
+  # Si aprueba: ["NINGUNA"]. Si falla: lista con todas las fallas encontradas.
+  # Ej: ["ALUCINACION_MATEMATICA", "DESVIACION_IDENTIDAD"]
+  # CORRECCIÓN: campo renombrado de tipo_falla (singular) a tipos_falla (plural)
+  # para alinearse con la implementación real en agents/n13_revisor.py (TipoFalla enum).
+warning_especifico: string | null   # feedback para N11 si aprobado=false — describe TODAS las fallas
+insight_para_memoria: string | null # resumen 2 líneas para mepia_memory si aprobado=true
+```
+> Retornado por el LLM de N13 con structured output (Pydantic). Nunca texto libre.
+> `tipos_falla` es una lista para soportar fallas concurrentes — el LLM puede detectar
+> alucinación matemática Y desviación de identidad en el mismo borrador.
+
+### FinalReport (output de N14 — contrato para el endpoint GET /result)
+```
+layer3_run_id: str
+business_id: str
+date: str
+archetype: str
+temporalidad: str
+executive_summary: str           # tomado directamente de DraftReport
+operational_narrative_md: str    # narrativa en Markdown con headers y bullets
+pragmatic_actions: list[dict]    # lista de acciones con priority y owner
+draft_status: str                # "approved" | "approved_with_warning"
+model_used: str                  # propagado desde DraftReport.model_used
+intentos_critico: int            # número de revisiones que requirió el borrador
+quality_warnings: list[str]      # historial_feedback si hubo rechazos
+finalized_at: str                # ISO-8601 UTC
+layer3_duration_ms: int          # duración total del grafo Layer 3
+```
+> Generado por N14 de forma determinista. Sin llamadas a LLM.
+> Persistido en `audit_results` con `node_id: "N14"`.
+
+### FinalResponse (output de N14 — contrato para el frontend vía GET /result)
+```
+report_markdown: str             # operational_narrative_md formateado
+status: str                      # "approved" | "approved_with_warning"
+has_warnings: bool               # True si status == "approved_with_warning"
+metadata: {
+  generated_at: str              # timestamp UTC ISO-8601 del momento de empaquetado
+  audit_trail: List[Dict]        # historial completo de audit_results incluyendo entrada N14
+}
+```
+> `has_warnings` es el flag que el frontend usa para mostrar banner de advertencia al dueño.
+
+### Layer3State (estado del grafo LangGraph — Layer 3)
+```
+# Trazabilidad (escritas por N10, inmutables)
+layer3_run_id: str
+layer2_run_id: str          # puede tener prefijo "isolated_" en modo aislado
+sequential_run_id: str      # puede tener prefijo "isolated_" en modo aislado
+business_id: str
+date: str
+archetype: str
+
+# Payload de datos (fuente de verdad para N13)
+enriched_payload: dict           # EnrichedAuditPayload serializado
+
+# Borrador (escrito por N11, evaluado por N13)
+draft_report: dict | None        # DraftReport serializado
+
+# Control del loop de calidad (escritas por N13)
+intentos_critico: int            # default 0
+feedback_critico: str | None     # default None — leído por N11 para corregir
+historial_feedback: List[str]    # acumulado de todos los warnings — default []
+tipos_falla_critico: List[str]   # fallas del último veredicto — default []
+draft_status: str                # "pending" | "approved" | "approved_with_warning" | "rejected"
+
+# Auditoría del nodo (escritas por N13 en cada ejecución)
+audit_results: List[dict]        # veredictos serializados — default []
+
+# Output terminal (escrito por N14)
+final_response: dict | None      # FinalResponse empaquetado — default None
 ```

@@ -5,6 +5,17 @@
 **Patrón:** Nodo paralelo — retorna `NodeResult` al orquestador N06
 **Timeout asignado por N06:** configurable vía `node_timeouts.n09_gastos` (default 20s)
 
+## Decisión de LLM
+
+| Campo | Valor |
+|-------|-------|
+| **Modelo** | `gpt-4o-mini` |
+| **Proveedor** | OpenAI |
+| **Temperatura** | `0.2` |
+| **Justificación** | Nodo de soporte no crítico. Genera únicamente `copilot_phrase` — una frase de apoyo sobre el `FinancialAuditResult` ya calculado por Python. Si el LLM falla, el nodo sigue siendo `"success"` con `copilot_phrase: null`. Prioridad: velocidad y bajo costo dentro del timeout de 20s. |
+| **Variable de entorno requerida** | `OPENAI_API_KEY` |
+| **Fallback** | Si el LLM falla o hace timeout → `copilot_phrase: null`, `status: "success"`. No hay fallback a otro modelo — el `raw_result` es suficiente para N11. |
+
 ---
 
 ## Responsabilidad

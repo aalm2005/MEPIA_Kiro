@@ -282,4 +282,4 @@ businesses (1) ──< mepia_memory (N)
 - `002_hybrid_schema.sql`: schema completo con todas las tablas de este documento
 - Campos nuevos vs original: `tax_amount`, `supplier_name`, `concept`, `document_reference`, `expense_behavior`, `raw_metadata` en `transactions`
 - Nuevas tablas: `businesses`, `business_fixed_costs`, `documents`, `recipes`, `daily_context`, `metric_status`, `unit_conversions`, `pos_inputs`, `cash_counts`, `audit_results`, `circuit_breaker_state`
-- `003_memory.sql` (pendiente): habilita extensión `vector` + crea `mepia_memory` con FK real a `businesses`, columnas `status`, `source_audit_run_id`, embedding `vector(1536)` para `text-embedding-3-small`, índice `hnsw`
+- `003_memory.sql` ✅: habilita extensión `vector` + crea `mepia_memory` con FK real a `businesses`, columnas `status`, `source_audit_run_id` nullable, embedding `vector(1536)` para `text-embedding-3-small` (1536 dims — decisión fija V1), índice HNSW coseno
