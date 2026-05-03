@@ -47,56 +47,77 @@ Unidades incompatibles → `status: "unit_mismatch"`, no calcular.
 }
 ```
 
+## Funciones auxiliares puras
+
+### `normalize_units(value, from_unit, to_unit, conversions) -> Decimal | None`
+Convierte entre unidades usando la lista `conversions` (ya cargada desde DB).
+- `from_unit == to_unit` → retorna value sin cambio.
+- Sin conversión disponible → retorna `None` (el caller emite `unit_mismatch`).
+
+### `days_in_month(date_str) -> int`
+Retorna días reales del mes (28/29/30/31) para una fecha YYYY-MM-DD.
+Usa `calendar.monthrange` — respeta años bisiestos. NUNCA retorna 30 fijo.
+
 ## Funciones
 
-### `calc_contribution_margin(product_id)`
+### `calc_contribution_margin(product_id, db)`
 ```
 MC = precio_venta - sum(ingrediente_qty × precio_unitario)
 ```
-Edge: sin receta → `incomplete_data`
+- `precio_unitario`: última factura del ingrediente en `transactions`.
+- Edge: sin receta → `incomplete_data`; ingrediente sin factura → `incomplete_data`.
 
-### `calc_daily_break_even(business_id)`
+### `calc_daily_break_even(business_id, date)`
 ```
-PE = (sum(FIXED expenses del mes) / 30) / MC_promedio
+PE_unidades = (sum(FIXED expenses del mes) / days_in_month(date)) / MC_promedio
 ```
 Usa solo `transactions` con `expense_behavior = "FIXED"` confirmado vía API.
-Edge: MC_promedio = 0 → `incomplete_data`
+Divisor: `days_in_month(date)` — NUNCA 30 fijo.
+Edge: MC_promedio = 0 → `incomplete_data`; sin gastos FIXED → `incomplete_data`
 
-### `calc_waste_analysis(ingredient_id, start_date, end_date)`
+### `calc_waste_analysis(ingredient_id, start_date, end_date, business_id, db)`
 ```
-merma = insumos_comprados - (ventas × cantidad_en_receta)
+merma_pct = (comprado_base - consumo_teorico_base) / comprado_base × 100
 ```
-Normalizar unidades antes de restar. Edge: unidades incompatibles → `unit_mismatch`
+- Normalizar unidades con `unit_conversions` antes de restar.
+- `consumo_teorico` = sum(ventas_producto × qty_ingrediente_en_receta) desde `pos_inputs`.
+- Edge: unidades incompatibles → `unit_mismatch`; sin compras → `incomplete_data`.
 
-### `calc_burn_rate(business_id)`
+### `calc_burn_rate(business_id, date)`
 ```
-BR = sum(FIXED + VARIABLE expenses del mes) / 30
+BR = sum(FIXED + VARIABLE expenses del mes) / days_in_month(date)
 ```
-Edge: sin gastos confirmados → `incomplete_data`
+Divisor: `days_in_month(date)` — NUNCA 30 fijo.
+Edge: sin gastos confirmados → `incomplete_data`. Sin umbrales (siempre "ok" si hay datos).
 
-### `check_price_inflation(ingredient_id)`
+### `check_price_inflation(ingredient_id, business_id, db)`
 ```
-delta = ((precio_ultima_factura - precio_promedio_anteriores) / precio_promedio_anteriores) × 100
+delta_pct = ((precio_ultima_factura - precio_promedio_anteriores) / precio_promedio_anteriores) × 100
 ```
-Edge: solo 1 factura → `incomplete_data`
+- Facturas ordenadas por `transaction_date DESC`; la primera es la más reciente.
+- Edge: solo 1 factura → `incomplete_data`; precio_promedio = 0 → `incomplete_data`.
 
-### `calc_cash_reconciliation(business_id, date)` ← NUEVA
+### `calc_cash_reconciliation(business_id, date, db)`
 ```
 expected_cash = initial_float + pos_cash_sales - refunds - cash_payouts
-variance = actual_cash_counted - expected_cash
+variance      = actual_cash_counted - expected_cash
+variance_pct  = variance / pos_cash_sales × 100  (si pos_cash_sales > 0)
 ```
-- Input: `pos_inputs` + `cash_count` manual del día
-- Output: `{ metric: "conciliacion_caja", value: variance, unit: "MXN", status, context }`
-- WHEN variance negativa > 1% de ventas en efectivo → `status: "critical"`, alerta a S4
+- Input: `pos_inputs` (cash_sales, refunds) + `cash_counts` (initial_float, actual_counted, cash_payouts).
+- `value`: variance en MXN.
+- Si `pos_cash_sales = 0` → usar variance absoluta para determinar status.
+- Edge: sin pos_inputs o sin cash_counts → `incomplete_data`.
 
 ## Umbrales de status
 
-| Métrica              | warning       | critical                        |
-|----------------------|---------------|---------------------------------|
-| Merma                | > 5%          | > 15%                           |
-| Inflación precio     | delta 5–15%   | delta > 15%                     |
-| Conciliación caja    | variance < 0  | variance < -1% de ventas        |
-| Margen contribución  | MC < 20%      | MC < 10%                        |
+| Métrica              | warning            | critical                        |
+|----------------------|--------------------|--------------------------------------|
+| Merma                | merma_pct > 5%     | merma_pct > 15%                      |
+| Inflación precio     | delta_abs 5–15%    | delta_abs > 15%                      |
+| Conciliación caja    | variance < 0       | variance_pct < -1% de ventas         |
+| Margen contribución  | MC_pct < 20%       | MC_pct < 10%                         |
+| Burn rate            | —                  | — (siempre "ok" si hay datos)        |
+| Punto de equilibrio  | —                  | — (siempre "ok" si hay datos)        |
 
 ## Extensibilidad
 

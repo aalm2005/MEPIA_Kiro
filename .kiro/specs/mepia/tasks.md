@@ -1,17 +1,18 @@
-# Plan de Implementación — MEPIA Frontend UI
+# Plan de Implementación — MEPIA
 
 ## Visión general
 
-Implementación incremental del frontend en Next.js App Router + TypeScript + Tailwind CSS.
-Cada fase termina con el proyecto compilando sin errores.
+Implementación incremental de MEPIA. Las fases 1–3 (frontend) están completas.
+Las fases 4–18 cubren el pipeline backend completo.
 
 ## Fases
 
-| Archivo | Contenido |
-|---------|-----------|
-| `tasks_phase1.md` | Design system + componentes base + rutas de onboarding |
-| `tasks_phase2.md` | Ruta `/upload`: gate, selector, dropzones, review, form |
-| `tasks_phase3.md` | Ruta `/dashboard` + API routes + integración end-to-end |
+| Archivo | Contenido | Estado |
+|---------|-----------|--------|
+| `tasks_phase1.md` | Design system + componentes base + rutas de onboarding | ✅ Completo |
+| `tasks_phase2.md` | Ruta `/upload`: gate, selector, dropzones, review, form | ✅ Completo |
+| `tasks_phase3.md` | Ruta `/dashboard` + API routes + integración end-to-end | ✅ Completo |
+| `tasks_backend.md` | Pipeline backend completo: S1→S2→S3→S4→N05→N06→N09→Layer3→PBT | 🔧 Pendiente |
 
 ## Archivos de diseño de referencia
 
@@ -23,3 +24,19 @@ Cada fase termina con el proyecto compilando sin errores.
 - `design_flows.md` — estados de UI y flujos de control
 - `design_flows_main.md` — diagrama de secuencia completo
 - `_glossary.md` — contratos de datos (AuditInsight, OrchestratorResult, etc.)
+
+## Specs de referencia por fase
+
+| Fase | Spec |
+|------|------|
+| 4 — S1 Ingesta | `n01_pos_pdf_input.md`, `n02_facturas_input.md`, `n03_human_input_endpoints.md`, `s1_ingesta.md` |
+| 5 — S2 Gatekeeper | `s2_gatekeeper.md` |
+| 6 — S3 Motor Cálculo | `s3_motor_calculo.md` |
+| 7 — S4 Forensic CFO | `s4_auditoria_ia.md` |
+| 8 — N05 CEO Orchestrator | `n05_ceo_orchestrator.md` |
+| 9 — N06 Layer 2 | `n06_orchestrator_adk.md` |
+| 10 — N09 Gastos | `n09_gastos.md` |
+| 11 — MemoryService | `mem_memory_layer.md` |
+| 12–16 — Layer 3 | `n10_context_builder.md`, `n11_consultor.md`, `n13_revisor.md`, `n14_informe_final.md`, `layer3_graph.md`, `api_layer3.md` |
+| 17 — PBT | Todos los specs con sección "Correctness Properties" |
+| 18 — Integración | `design_flows_main.md` |

@@ -9,6 +9,9 @@ node_modules/
 api/.env
 **/.env
 
+# Kiro settings — contiene tokens y configuración local
+.kiro/settings/
+
 __pycache__/
 *.pyc
 .venv/

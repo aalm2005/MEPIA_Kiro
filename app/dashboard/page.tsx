@@ -14,7 +14,7 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const runId = searchParams.get("run_id");
 
-  const { result, pipelineStatus, currentNode, layer2Status, error } =
+  const { result, pipelineStatus, currentNode, layer3Status, error } =
     useAuditPolling(runId);
 
   const riskLevel =
@@ -34,14 +34,14 @@ function DashboardContent() {
         <PipelineStatusBar
           status={pipelineStatus ?? "idle"}
           currentNode={currentNode ?? undefined}
-          layer2Status={layer2Status ?? undefined}
+          layer2Status={layer3Status ?? undefined}
         />
       </div>
 
       {/* Layer2Banner — conditional */}
-      {isEscalated && layer2Status && (
+      {isEscalated && layer3Status && (
         <div className="mb-4">
-          <Layer2Banner layer2Status={layer2Status} />
+          <Layer2Banner layer2Status={layer3Status} />
         </div>
       )}
 

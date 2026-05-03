@@ -386,31 +386,48 @@ class MemoryService:
         """
         Genera el embedding vectorial del texto usando text-embedding-3-small.
 
-        TODO: implementar cuando la API key de OpenAI esté configurada.
-              Usar openai.AsyncOpenAI para llamadas async.
+        Usa openai.AsyncOpenAI para llamadas async no bloqueantes.
+        El cliente se inicializa lazy y se reutiliza entre llamadas.
 
         Args:
-            text: Texto a vectorizar.
+            text: Texto a vectorizar (se trunca a 8191 tokens si es necesario).
 
         Returns:
             Lista de 1536 floats representando el vector.
 
         Raises:
-            MemoryServiceError: Si la API de embeddings no está disponible.
+            MemoryServiceError: Si OPENAI_API_KEY no está configurada o la API falla.
         """
-        # TODO: implementar con openai.AsyncOpenAI
-        # Ejemplo:
-        #   from openai import AsyncOpenAI
-        #   client = AsyncOpenAI()
-        #   response = await client.embeddings.create(
-        #       input=text,
-        #       model=EMBEDDING_MODEL,
-        #   )
-        #   return response.data[0].embedding
-        raise MemoryServiceError(
-            "MemoryService._get_embedding: No implementado. "
-            "Configurar cliente OpenAI antes de usar get_context()."
-        )
+        try:
+            import os
+            from openai import AsyncOpenAI
+
+            if self._openai_client is None:
+                api_key = os.environ.get("OPENAI_API_KEY")
+                if not api_key:
+                    raise MemoryServiceError(
+                        "OPENAI_API_KEY no configurada — no se puede generar embedding."
+                    )
+                self._openai_client = AsyncOpenAI(api_key=api_key)
+
+            # Limpiar saltos de línea — mejora la calidad del embedding
+            clean_text = text.replace("\n", " ").strip()
+            if not clean_text:
+                raise MemoryServiceError("Texto vacío — no se puede generar embedding.")
+
+            response = await self._openai_client.embeddings.create(
+                input=clean_text,
+                model=EMBEDDING_MODEL,
+            )
+            return response.data[0].embedding
+
+        except MemoryServiceError:
+            raise
+        except Exception as exc:
+            raise MemoryServiceError(
+                f"Error al generar embedding con {EMBEDDING_MODEL}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
 
     async def _search_pgvector(
         self,
@@ -421,10 +438,9 @@ class MemoryService:
         """
         Busca chunks similares en mepia_memory usando pgvector (cosine similarity).
 
+        Llama al RPC `match_mepia_memory` definido en 004_rpc_and_rls.sql.
         Filtra por business_id y status='embedded'.
         Retorna los `limit` chunks más similares con su score de similitud.
-
-        TODO: implementar con cliente Supabase real cuando la tabla esté creada.
 
         Args:
             embedding:   Vector de búsqueda (1536 dims).
@@ -434,24 +450,28 @@ class MemoryService:
         Returns:
             Lista de dicts con campos: content, metadata, similarity, created_at.
         """
-        # TODO: implementar con Supabase RPC o query directa a pgvector
-        # Ejemplo con Supabase RPC:
-        #   result = self._supabase.rpc(
-        #       "match_mepia_memory",
-        #       {
-        #           "query_embedding": embedding,
-        #           "business_id_filter": business_id,
-        #           "match_count": limit,
-        #       }
-        #   ).execute()
-        #   return result.data or []
-        return []
+        try:
+            result = self._supabase.rpc(
+                "match_mepia_memory",
+                {
+                    "query_embedding": embedding,
+                    "business_id_filter": business_id,
+                    "match_count": limit,
+                },
+            ).execute()
+            return result.data or []
+        except Exception as exc:
+            logger.warning(
+                "MemoryService._search_pgvector falló para business_id=%s: %s: %s",
+                business_id,
+                type(exc).__name__,
+                exc,
+            )
+            return []
 
     async def _insert_chunk(self, row: dict) -> None:
         """
         Inserta un sub-chunk en la tabla mepia_memory de Supabase.
-
-        TODO: implementar con cliente Supabase real cuando la tabla esté creada.
 
         Args:
             row: Dict con los campos de la fila a insertar.
@@ -459,16 +479,18 @@ class MemoryService:
         Raises:
             MemoryServiceError: Si la inserción falla.
         """
-        # TODO: implementar con Supabase
-        # Ejemplo:
-        #   result = self._supabase.table("mepia_memory").insert(row).execute()
-        #   if hasattr(result, "error") and result.error:
-        #       raise MemoryServiceError(f"Insert falló: {result.error}")
-        logger.debug(
-            "MemoryService._insert_chunk: [STUB] chunk insertado para business_id=%s "
-            "(node_origin=%s, chunk_index=%s/%s).",
-            row.get("business_id"),
-            row.get("metadata", {}).get("node_origin"),
-            row.get("metadata", {}).get("chunk_index"),
-            row.get("metadata", {}).get("chunk_total"),
-        )
+        try:
+            result = self._supabase.table("mepia_memory").insert(row).execute()
+            # El cliente supabase-py lanza excepción si hay error — no hay result.error
+            logger.debug(
+                "MemoryService._insert_chunk: chunk insertado para business_id=%s "
+                "(node_origin=%s, chunk_index=%s/%s).",
+                row.get("business_id"),
+                row.get("metadata", {}).get("node_origin"),
+                row.get("metadata", {}).get("chunk_index"),
+                row.get("metadata", {}).get("chunk_total"),
+            )
+        except Exception as exc:
+            raise MemoryServiceError(
+                f"Insert en mepia_memory falló: {type(exc).__name__}: {exc}"
+            ) from exc

@@ -3,13 +3,29 @@
 import { useEffect, useRef, useState } from "react";
 import type { OrchestratorResult, PipelineStatus } from "@/types/audit";
 
+/**
+ * Response from GET /api/audit/status/{run_id}
+ * → proxied to GET /orchestrator/status/{run_id}
+ */
 interface StatusResponse {
+  run_id: string;
   pipeline_status: PipelineStatus;
   current_node?: string;
+  completed_at?: string;
 }
 
-interface Layer2StatusResponse {
+/**
+ * Response from GET /api/audit/layer3/status/{layer3_run_id}
+ * → proxied to GET /api/audit/layer3/status/{layer3_run_id}
+ */
+interface Layer3StatusResponse {
+  layer3_run_id: string;
   status: "running" | "completed" | "failed";
+  draft_status?: "approved" | "approved_with_warning";
+  current_node?: string;
+  intentos_critico?: number;
+  started_at?: string;
+  completed_at?: string;
 }
 
 const TERMINAL_STATUSES: PipelineStatus[] = [
@@ -20,13 +36,31 @@ const TERMINAL_STATUSES: PipelineStatus[] = [
 ];
 
 interface UseAuditPollingResult {
+  /** Full orchestrator result (available after pipeline reaches terminal status) */
   result: OrchestratorResult | null;
+  /** Current pipeline status from polling */
   pipelineStatus: PipelineStatus | null;
+  /** Current node being executed in the pipeline */
   currentNode: string | null;
-  layer2Status: "running" | "completed" | "failed" | null;
+  /** Layer 3 status (only when escalation triggered Layer 3) */
+  layer3Status: "running" | "completed" | "failed" | null;
+  /** Layer 3 draft status (approved / approved_with_warning) */
+  layer3DraftStatus: string | null;
+  /** Error message if any polling step fails */
   error: string | null;
 }
 
+/**
+ * Hook for polling the audit pipeline status.
+ *
+ * Flow:
+ *   1. Poll GET /api/audit/status/{runId} every intervalMs
+ *   2. When pipeline reaches terminal status → fetch full result
+ *   3. If escalation.triggered → start second polling to GET /api/audit/layer3/status/{layer3_run_id}
+ *   4. Stop all polling when Layer 3 completes or fails
+ *
+ * Spec: tasks_backend.md §18.3
+ */
 export function useAuditPolling(
   runId: string | null,
   intervalMs: number = 2000
@@ -36,24 +70,26 @@ export function useAuditPolling(
     null
   );
   const [currentNode, setCurrentNode] = useState<string | null>(null);
-  const [layer2Status, setLayer2Status] = useState<
+  const [layer3Status, setLayer3Status] = useState<
     "running" | "completed" | "failed" | null
   >(null);
+  const [layer3DraftStatus, setLayer3DraftStatus] = useState<string | null>(
+    null
+  );
   const [error, setError] = useState<string | null>(null);
 
-  // Refs to hold interval IDs so cleanup always has the latest values
   const mainIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const layer2IntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const layer3IntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    // Nothing to do without a runId
     if (!runId) return;
 
     // Reset state when runId changes
     setResult(null);
     setPipelineStatus(null);
     setCurrentNode(null);
-    setLayer2Status(null);
+    setLayer3Status(null);
+    setLayer3DraftStatus(null);
     setError(null);
 
     const clearMainInterval = () => {
@@ -63,15 +99,16 @@ export function useAuditPolling(
       }
     };
 
-    const clearLayer2Interval = () => {
-      if (layer2IntervalRef.current !== null) {
-        clearInterval(layer2IntervalRef.current);
-        layer2IntervalRef.current = null;
+    const clearLayer3Interval = () => {
+      if (layer3IntervalRef.current !== null) {
+        clearInterval(layer3IntervalRef.current);
+        layer3IntervalRef.current = null;
       }
     };
 
     /**
-     * Fetch the full orchestrator result and, if escalated, start Layer 2 polling.
+     * Fetch the full orchestrator result once pipeline reaches terminal status.
+     * If escalated, start Layer 3 polling.
      */
     const fetchFinalResult = async () => {
       try {
@@ -84,45 +121,52 @@ export function useAuditPolling(
         const data: OrchestratorResult = await res.json();
         setResult(data);
 
-        // Start Layer 2 polling if the run was escalated
+        // If escalated → start Layer 3 polling using layer2_run_id
+        // The backend triggers Layer 3 automatically when escalation happens
         if (
           data.escalation.triggered &&
           data.escalation.layer2_run_id !== null
         ) {
           const layer2RunId = data.escalation.layer2_run_id;
 
-          const pollLayer2 = async () => {
+          const pollLayer3 = async () => {
             try {
-              const l2Res = await fetch(
+              const l3Res = await fetch(
                 `/api/audit/layer3/status/${layer2RunId}`
               );
-              if (!l2Res.ok) {
+              if (!l3Res.ok) {
                 throw new Error(
-                  `Error fetching Layer 2 status: ${l2Res.status} ${l2Res.statusText}`
+                  `Error fetching Layer 3 status: ${l3Res.status} ${l3Res.statusText}`
                 );
               }
-              const l2Data: Layer2StatusResponse = await l2Res.json();
-              setLayer2Status(l2Data.status);
+              const l3Data: Layer3StatusResponse = await l3Res.json();
+              setLayer3Status(l3Data.status);
+              setLayer3DraftStatus(l3Data.draft_status ?? null);
 
+              if (l3Data.current_node) {
+                setCurrentNode(l3Data.current_node);
+              }
+
+              // Stop polling when Layer 3 reaches terminal status
               if (
-                l2Data.status === "completed" ||
-                l2Data.status === "failed"
+                l3Data.status === "completed" ||
+                l3Data.status === "failed"
               ) {
-                clearLayer2Interval();
+                clearLayer3Interval();
               }
             } catch (err) {
               setError(
                 err instanceof Error
                   ? err.message
-                  : "Error polling Layer 2 status"
+                  : "Error polling Layer 3 status"
               );
-              clearLayer2Interval();
+              clearLayer3Interval();
             }
           };
 
           // Poll immediately, then on interval
-          await pollLayer2();
-          layer2IntervalRef.current = setInterval(pollLayer2, intervalMs);
+          await pollLayer3();
+          layer3IntervalRef.current = setInterval(pollLayer3, intervalMs);
         }
       } catch (err) {
         setError(
@@ -132,7 +176,8 @@ export function useAuditPolling(
     };
 
     /**
-     * Main polling function — polls pipeline status and stops when terminal.
+     * Main polling — polls orchestrator status until terminal.
+     * Terminal statuses: completed, partial, escalated, failed
      */
     const pollStatus = async () => {
       try {
@@ -165,9 +210,16 @@ export function useAuditPolling(
 
     return () => {
       clearMainInterval();
-      clearLayer2Interval();
+      clearLayer3Interval();
     };
   }, [runId, intervalMs]);
 
-  return { result, pipelineStatus, currentNode, layer2Status, error };
+  return {
+    result,
+    pipelineStatus,
+    currentNode,
+    layer3Status,
+    layer3DraftStatus,
+    error,
+  };
 }

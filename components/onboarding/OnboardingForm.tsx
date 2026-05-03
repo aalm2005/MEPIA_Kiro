@@ -63,7 +63,22 @@ export default function OnboardingForm() {
     setSaveError(null);
 
     const business_id = process.env.NEXT_PUBLIC_BUSINESS_ID;
-    const body = { business_id, ...formData };
+
+    // Mapear campos del formulario al contrato del backend:
+    //   amount_per_month  → expected_monthly_amount
+    //   tolerance_pct     → decimal (el usuario ingresa 10 = 10%, backend espera 0.10)
+    const mappedCostStructure = formData.expected_cost_structure.map((item) => ({
+      concept: item.concept,
+      expected_monthly_amount: item.amount_per_month,
+      tolerance_pct: item.tolerance_pct > 1 ? item.tolerance_pct / 100 : item.tolerance_pct,
+      expense_behavior: item.expense_behavior,
+    }));
+
+    const body = {
+      business_id,
+      ...formData,
+      expected_cost_structure: mappedCostStructure,
+    };
 
     try {
       let response = await fetch("/api/onboarding", {
@@ -95,7 +110,9 @@ export default function OnboardingForm() {
       }
 
       // Any other non-success status
-      setSaveError("Error al guardar la configuración. Intenta de nuevo.");
+      const errData = await response.json().catch(() => null);
+      const errMsg = errData?.detail ?? errData?.message ?? "Error al guardar la configuración. Intenta de nuevo.";
+      setSaveError(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
     } catch {
       setSaveError("Error al guardar la configuración. Intenta de nuevo.");
     } finally {

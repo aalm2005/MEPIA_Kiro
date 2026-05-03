@@ -37,9 +37,9 @@ CREATE TABLE IF NOT EXISTS mepia_memory (
 
     -- Run de auditoría que originó este chunk.
     -- NULLABLE: los chunks de onboarding no tienen auditoría previa asociada.
-    -- ON DELETE SET NULL: si se elimina el run, el chunk se conserva sin referencia.
-    source_audit_run_id UUID
-        REFERENCES audit_results(run_id) ON DELETE SET NULL,
+    -- Sin FK formal: audit_results.run_id no es PK (puede haber N filas por run).
+    -- La trazabilidad se mantiene como dato en metadata.
+    source_audit_run_id UUID,
 
     -- Contenido del chunk (≤ 500 tokens según pipeline de chunking).
     -- Prohibido guardar reportes completos en un solo registro.
