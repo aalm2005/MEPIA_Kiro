@@ -99,7 +99,7 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
 
 ## Fase 6 — S3: Motor de Cálculo
 
-- [-] 6.1 Crear `agents/calc_engine.py` con funciones puras (sin LLM)
+- [x] 6.1 Crear `agents/calc_engine.py` con funciones puras (sin LLM)
   - `calc_contribution_margin(product_id, db)` → `CalcResult`
   - `calc_daily_break_even(business_id, date, db)` → `CalcResult`
     - Usar `days_in_month(date)` como divisor, nunca 30 fijo
@@ -114,11 +114,11 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
   - División por cero o dato faltante → `status: "incomplete_data"`, nunca excepción
   - Solo operar sobre métricas con `status: "active"` del Gatekeeper
   - _Spec: s3_motor_calculo.md_
-- [~] 6.2 Implementar normalización de unidades
+- [x] 6.2 Implementar normalización de unidades
   - Leer factores de conversión desde tabla `unit_conversions`
   - Unidades incompatibles → `status: "unit_mismatch"`
   - _Spec: s3_motor_calculo.md_
-- [~] 6.3 Implementar umbrales de status por métrica
+- [x] 6.3 Implementar umbrales de status por métrica
   - Merma: warning > 5%, critical > 15%
   - Inflación precio: warning 5–15%, critical > 15%
   - Conciliación caja: warning < 0, critical < -1% de ventas
@@ -129,7 +129,7 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
 
 ## Fase 7 — S4: Forensic CFO (IA)
 
-- [ ] 7.1 Crear `agents/forensic_cfo.py` con clase `ForensicCFOAgent`
+- [x] 7.1 Crear `agents/forensic_cfo.py` con clase `ForensicCFOAgent`
   - LLM: `gpt-4o`, temperatura `0`, structured output
   - System prompt del Forensic CFO (ver s4_auditoria_ia.md)
   - Input: `CalcResult[]` + `daily_context.tags` + `business_id` + `date`
@@ -138,7 +138,7 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
   - `source_discrepancy` siempre `severity: "high"` sin excepción
   - `observed_causality` adjunta tags sin modificar ningún `severity`
   - _Spec: s4_auditoria_ia.md_
-- [ ] 7.2 Implementar `POST /audit/run` en `api/main.py`
+- [x] 7.2 Implementar `POST /audit/run` en `api/main.py`
   - Verificar que S3 corrió para `business_id + date` (HTTP 409 si no)
   - Ejecutar S4 y retornar `ForensicReport`
   - _Spec: s4_auditoria_ia.md_
@@ -147,7 +147,7 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
 
 ## Fase 8 — N05: CEO Orchestrator
 
-- [ ] 8.1 Crear `agents/ceo_orchestrator.py`
+- [x] 8.1 Crear `agents/ceo_orchestrator.py`
   - LLM: `gpt-4o`, temperatura `0.3`
   - Coordinar S3 → S4 → síntesis con arquetipo
   - Para cada `AnomalyItem`: aplicar CEO Cognitive Frame del arquetipo
@@ -157,24 +157,24 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
   - Mapear `severity` → `alert_level` (high→critical, medium→warning, low→info)
   - Generar `AuditInsight[]` con `copilot_phrase` + `recommended_action`
   - _Spec: n05_ceo_orchestrator.md_
-- [ ] 8.2 Implementar lógica de escalación a Layer 2
+- [x] 8.2 Implementar lógica de escalación a Layer 2
   - `risk_level: "high"` + `escalate_to_parallel: true` → disparar `POST /layer2/run`
   - Si N06 retorna 503 → `pipeline_status: "failed"`, no reintentar
   - _Spec: n05_ceo_orchestrator.md_
-- [ ] 8.3 Implementar `POST /orchestrator/run` en `api/main.py`
+- [x] 8.3 Implementar `POST /orchestrator/run` en `api/main.py`
   - Verificar prerequisitos (business existe, S2 corrió, no hay docs pendientes de review)
   - Ejecutar S3 → S4 → N05 síntesis
   - Persistir en `audit_results` con `node_id: "N05"`
   - Retornar `OrchestratorResult` con `run_id`, `sequential_results`, `escalation`, `dormant_metrics`
   - _Spec: n05_ceo_orchestrator.md_
-- [ ] 8.4 Implementar `GET /orchestrator/status/{run_id}` en `api/main.py`
+- [x] 8.4 Implementar `GET /orchestrator/status/{run_id}` en `api/main.py`
   - _Spec: n05_ceo_orchestrator.md_
 
 ---
 
 ## Fase 9 — N06: Orquestador ADK (Layer 2)
 
-- [ ] 9.1 Crear `agents/parallel_orchestrator.py`
+- [x] 9.1 Crear `agents/parallel_orchestrator.py`
   - Instalar `langgraph` en `api/requirements.txt`
   - Implementar scatter-gather con `asyncio.gather`
   - Timeouts independientes por nodo (N07: 15s, N08: 60s, N09: 20s)
@@ -183,23 +183,23 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
   - Consolidar en `ParallelGatherResult`
   - Persistir en `audit_results` antes de retornar
   - _Spec: n06_orchestrator_adk.md_
-- [ ] 9.2 Implementar circuit breaker
+- [x] 9.2 Implementar circuit breaker
   - Consultar `circuit_breaker_state` antes del scatter
   - Si nodo en `circuit_open` → `status: "error"`, `error_detail: "circuit_open"`
   - Actualizar `circuit_breaker_state` tras cada fallo consecutivo
   - _Spec: n06_orchestrator_adk.md_
-- [ ] 9.3 Implementar `POST /layer2/run` en `api/main.py`
+- [x] 9.3 Implementar `POST /layer2/run` en `api/main.py`
   - _Spec: n06_orchestrator_adk.md_
-- [ ] 9.4 Implementar `GET /layer2/status/{layer2_run_id}` en `api/main.py`
+- [x] 9.4 Implementar `GET /layer2/status/{layer2_run_id}` en `api/main.py`
   - _Spec: n06_orchestrator_adk.md_
-- [ ] 9.5 Implementar `POST /layer2/circuit-reset` en `api/main.py`
+- [x] 9.5 Implementar `POST /layer2/circuit-reset` en `api/main.py`
   - _Spec: n06_orchestrator_adk.md_
 
 ---
 
 ## Fase 10 — N09: Agente de Auditoría Financiera (Layer 2)
 
-- [ ] 10.1 Refactorizar `agents/business_health.py` → implementar `N09FinancialAuditAgent`
+- [x] 10.1 Refactorizar `agents/business_health.py` → implementar `N09FinancialAuditAgent`
   - Heurística A: Break-Even + Ciclo de Vida
     - `business_age_months` desde `businesses.opening_date`
     - `costo_fijo_diario = SUM(fixed_costs) / days_in_month(date)`
@@ -220,16 +220,16 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
 
 ## Fase 11 — MemoryService: Implementación Real
 
-- [ ] 11.1 Implementar `MemoryService._get_embedding(text)` en `utils/memory_service.py`
+- [x] 11.1 Implementar `MemoryService._get_embedding(text)` en `utils/memory_service.py`
   - Usar `openai.AsyncOpenAI` con modelo `text-embedding-3-small`
   - _Spec: mem_memory_layer.md_
-- [ ] 11.2 Implementar `MemoryService._search_pgvector(embedding, business_id, limit)`
+- [x] 11.2 Implementar `MemoryService._search_pgvector(embedding, business_id, limit)`
   - Llamar RPC `match_mepia_memory` en Supabase
   - _Spec: mem_memory_layer.md_
-- [ ] 11.3 Implementar `MemoryService._insert_chunk(row)`
+- [x] 11.3 Implementar `MemoryService._insert_chunk(row)`
   - Insertar en tabla `mepia_memory` con `status: "pending_embed"`
   - _Spec: mem_memory_layer.md_
-- [ ] 11.4 Crear worker de embeddings `utils/embedding_worker.py`
+- [x] 11.4 Crear worker de embeddings `utils/embedding_worker.py`
   - Consultar `mepia_memory WHERE status = 'pending_embed'`
   - Generar embedding con OpenAI
   - Actualizar `embedding` + `status = 'embedded'`
@@ -240,7 +240,7 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
 
 ## Fase 12 — Layer 3: N10 Context Builder
 
-- [ ] 12.1 Crear `agents/context_builder.py` con función `n10_context_builder_node(state)`
+- [x] 12.1 Crear `agents/context_builder.py` con función `n10_context_builder_node(state)`
   - Extraer `forensic_report`, `audit_insights`, `calc_results`, `context_tags` de `ParallelGatherResult`
   - Ejecutar SQL rollup según `temporalidad` (short/medium/long)
     - short: `GROUP BY transaction_date`, rango 30 días → `list[ShortPeriodMetrics]`
@@ -258,7 +258,7 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
 
 ## Fase 13 — Layer 3: N11 Consultor Especialista
 
-- [ ] 13.1 Crear `agents/core_auditor.py` con función `n11_consultor_node(state)`
+- [x] 13.1 Crear `agents/core_auditor.py` con función `n11_consultor_node(state)`
   - LLM primario: `claude-3-5-sonnet-20241022` (Anthropic)
   - LLM fallback: `gpt-4o` (OpenAI) vía `with_fallbacks()`
   - Temperatura dinámica: 0.7 primer intento, 0.3 en reintento
@@ -269,14 +269,14 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
   - Persistir en `audit_results` con `node_id: "N11"`
   - Idempotencia: mismo `layer3_run_id` → retornar resultado existente
   - _Spec: n11_consultor.md_
-- [ ] 13.2 Implementar `POST /api/audit/test/n11_consultor` (solo testing)
+- [x] 13.2 Implementar `POST /api/audit/test/n11_consultor` (solo testing)
   - _Spec: n11_consultor.md_
 
 ---
 
 ## Fase 14 — Layer 3: N14 Informe Final
 
-- [ ] 14.1 Crear `agents/n14_informe_final.py` con función `n14_informe_final_node(state)`
+- [x] 14.1 Crear `agents/n14_informe_final.py` con función `n14_informe_final_node(state)`
   - Python puro, sin LLM
   - Extraer `DraftReport` aprobado del estado
   - Formatear `operational_narrative` a Markdown con header y footer
@@ -291,7 +291,7 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
 
 ## Fase 15 — Layer 3: Grafo LangGraph
 
-- [ ] 15.1 Crear `agents/layer3_graph.py`
+- [x] 15.1 Crear `agents/layer3_graph.py`
   - Instanciar `StateGraph(Layer3State)`
   - Registrar nodos: N10, N11, N13, N14
   - Flujo: N10 → N11 → N13 → (conditional) → N14 o N11
@@ -304,7 +304,7 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
 
 ## Fase 16 — API Layer 3
 
-- [ ] 16.1 Implementar `POST /api/audit/layer3/run` en `api/main.py`
+- [x] 16.1 Implementar `POST /api/audit/layer3/run` en `api/main.py`
   - Modo normal: reconstruir contexto desde `audit_results` por `audit_run_id`
   - Modo aislado: usar `business_id`, `date`, `archetype` del body
   - Verificar onboarding completo (HTTP 412 si no hay chunk `node_origin: "onboarding"`)
@@ -313,14 +313,14 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
   - Responder 202 inmediatamente
   - Idempotencia: mismo `audit_run_id` → HTTP 409
   - _Spec: api_layer3.md_
-- [ ] 16.2 Implementar `GET /api/audit/layer3/status/{layer3_run_id}`
+- [x] 16.2 Implementar `GET /api/audit/layer3/status/{layer3_run_id}`
   - Retornar estado actual del grafo (running/completed/failed)
   - _Spec: api_layer3.md_
-- [ ] 16.3 Implementar `GET /api/audit/layer3/result/{layer3_run_id}`
+- [x] 16.3 Implementar `GET /api/audit/layer3/result/{layer3_run_id}`
   - Retornar `FinalReport` completo
   - HTTP 409 si el grafo aún no completó
   - _Spec: api_layer3.md_
-- [ ] 16.4 Inicializar `MemoryService` y `layer3_app` en startup de FastAPI
+- [x] 16.4 Inicializar `MemoryService` y `layer3_app` en startup de FastAPI
   - `memory_service = MemoryService(supabase_client=supabase)`
   - `layer3_app = build_layer3_graph(memory_service)`
   - _Spec: api_layer3.md, layer3_graph.md_
@@ -329,42 +329,42 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
 
 ## Fase 17 — Tests de Propiedades (PBT)
 
-- [ ] 17.1 Instalar `hypothesis` en `api/requirements.txt`
-- [ ] 17.2 Tests PBT para N01 (POSIngestResult)
+- [x] 17.1 Instalar `hypothesis` en `api/requirements.txt`
+- [x] 17.2 Tests PBT para N01 (POSIngestResult)
   - P1: campos obligatorios siempre presentes
   - P2: `needs_human_review` ↔ campo con confianza < 90%
   - P4: round-trip JSON
   - P5: deduplicación SHA-256
   - _Spec: n01_pos_pdf_input.md §Correctness Properties_
-- [ ] 17.3 Tests PBT para S3 (CalcEngine)
+- [x] 17.3 Tests PBT para S3 (CalcEngine)
   - División por cero → `incomplete_data`, nunca excepción
   - Unidades incompatibles → `unit_mismatch`
   - `calc_cash_reconciliation`: fórmula matemática correcta
   - _Spec: s3_motor_calculo.md_
-- [ ] 17.4 Tests PBT para S4 (ForensicReport)
+- [x] 17.4 Tests PBT para S4 (ForensicReport)
   - P1: `observed_causality` nunca modifica `severity`
   - P2: `risk_level: "high"` ↔ ≥1 anomalía high
   - P3: `source_discrepancy` siempre `severity: "high"`
   - _Spec: s4_auditoria_ia.md §Correctness Properties_
-- [ ] 17.5 Tests PBT para N05 (OrchestratorResult)
+- [x] 17.5 Tests PBT para N05 (OrchestratorResult)
   - P2: `escalation.triggered: true` → `layer2_run_id` no nulo
   - P6: `severity: "high"` → `alert_level: "critical"` sin excepción
   - _Spec: n05_ceo_orchestrator.md §Correctness Properties_
-- [ ] 17.6 Tests PBT para N06 (ParallelGatherResult)
+- [x] 17.6 Tests PBT para N06 (ParallelGatherResult)
   - P1: `node_results` siempre 3 elementos
   - P2: `succeeded + timed_out + failed == 3`
   - P8: idempotencia de `layer2_run_id`
   - _Spec: n06_orchestrator_adk.md §Correctness Properties_
-- [ ] 17.7 Tests PBT para N09 (FinancialAuditResult)
+- [x] 17.7 Tests PBT para N09 (FinancialAuditResult)
   - P4: `resultado_operativo = total_sales - costo_fijo - gasto_variable`
   - P10: `costo_fijo_diario` usa `days_in_month`, nunca 30 fijo
   - P12: `burn_rate` nunca capeado
   - _Spec: n09_gastos.md §Correctness Properties_
-- [ ] 17.8 Tests PBT para N13 (CriticVerdict)
+- [x] 17.8 Tests PBT para N13 (CriticVerdict)
   - P1: `observed_causality` nunca modifica `severity`
   - Cortafuegos: `intentos_critico >= 2` → siempre `approved_with_warning`
   - _Spec: n13_revisor.md_
-- [ ] 17.9 Tests PBT para Layer 3 Graph
+- [x] 17.9 Tests PBT para Layer 3 Graph
   - P1: el grafo siempre termina (cortafuegos garantiza salida)
   - P3: `draft_status` al llegar a END es `approved` o `approved_with_warning`
   - _Spec: layer3_graph.md §Correctness Properties_
@@ -373,17 +373,17 @@ del backend Python: el pipeline de ingesta (S1), el gatekeeper (S2), el motor de
 
 ## Fase 18 — Integración Frontend ↔ Backend
 
-- [ ] 18.1 Actualizar `app/api/upload/route.ts`
+- [x] 18.1 Actualizar `app/api/upload/route.ts`
   - Handler `POST` para POS → proxy a `POST /ingest/pos`
   - Handler `POST` para factura → proxy a `POST /ingest/factura`
   - Handler `PATCH` para review → proxy a `PATCH /ingest/{type}/{file_id}/review`
-- [ ] 18.2 Actualizar `app/api/audit/route.ts`
+- [x] 18.2 Actualizar `app/api/audit/route.ts`
   - `POST /api/audit` → proxy a `POST /orchestrator/run`
-- [ ] 18.3 Actualizar `hooks/useAuditPolling.ts`
+- [x] 18.3 Actualizar `hooks/useAuditPolling.ts`
   - Polling a `GET /api/audit/status/{run_id}` → `GET /orchestrator/status/{run_id}`
   - Si `escalation.triggered` → iniciar segundo polling a `GET /api/audit/layer3/status/{layer3_run_id}`
   - Detener polling cuando `status` es `completed | partial | escalated | failed`
-- [ ] 18.4 Checkpoint de integración end-to-end
+- [x] 18.4 Checkpoint de integración end-to-end
   - Flujo completo: onboarding → subir POS PDF → subir factura → analizar → dashboard
   - Verificar que `DormantMetricsList` muestra métricas con datos faltantes
   - Verificar que `PipelineStatusBar` actualiza nodos durante polling

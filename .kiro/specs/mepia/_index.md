@@ -51,22 +51,22 @@
 | N02  | Facturas Proveedor Input| Sequential | `n02_facturas_input.md`    | ✅ done      |
 | N03  | Human Input Endpoints   | Sequential | `n03_human_input_endpoints.md` | ✅ req done |
 | S2   | Stand-by / Gatekeeper   | Sequential | `s2_gatekeeper.md`         | ✅ req done  |
-| S3   | Motor de Cálculo        | Sequential | `s3_motor_calculo.md`      | ✅ req done  |
-| S4   | Forensic CFO (Auditoría IA) | Sequential | `s4_auditoria_ia.md`       | ✅ req done  |
-| N05  | CEO Orchestrator (Síntesis Estratégica) | CEO Layer  | `n05_ceo_orchestrator.md`  | ✅ req done |
-| N06  | Orquestador ADK         | Parallel   | `n06_orchestrator_adk.md`  | ✅ req done |
+| S3   | Motor de Cálculo        | Sequential | `s3_motor_calculo.md`      | ✅ done      |
+| S4   | Forensic CFO (Auditoría IA) | Sequential | `s4_auditoria_ia.md`       | ✅ done      |
+| N05  | CEO Orchestrator (Síntesis Estratégica) | CEO Layer  | `n05_ceo_orchestrator.md`  | ✅ done     |
+| N06  | Orquestador ADK         | Parallel   | `n06_orchestrator_adk.md`  | ✅ done     |
 | N07  | Conciliación Efectivo   | Parallel   | `n07_conciliacion.md`      | skipped_v1  |
 | N08  | Cumplimiento PLD        | Parallel   | `n08_pld.md`               | skipped_v1  |
-| N09  | Auditoría Gastos        | Parallel   | `n09_gastos.md`            | ✅ req done |
-| N10  | Context Builder (Layer 3)| Loop      | `n10_context_builder.md`   | ✅ req done |
-| N11  | Consultor Especialista (Core Auditor) | Loop | `n11_consultor.md`         | ✅ req done |
+| N09  | Auditoría Gastos        | Parallel   | `n09_gastos.md`            | ✅ done     |
+| N10  | Context Builder (Layer 3)| Loop      | `n10_context_builder.md`   | ✅ done     |
+| N11  | Consultor Especialista (Core Auditor) | Loop | `n11_consultor.md`         | ✅ done     |
 | N12  | Phrase Expander         | Loop       | `n12_phrase_expander.md`   | skipped_v1  |
-| N13  | Revisor de Calidad (Critic & Enforcer) | Loop | `n13_revisor.md` | ✅ req done |
-| N14  | Informe Final           | Loop       | `n14_informe_final.md`     | ✅ req done |
-| L3G  | Layer 3 Graph           | Loop       | `layer3_graph.md`          | ✅ req done |
-| API3 | API Layer 3 Endpoint    | API        | `api_layer3.md`            | ✅ req done |
+| N13  | Revisor de Calidad (Critic & Enforcer) | Loop | `n13_revisor.md` | ✅ done     |
+| N14  | Informe Final           | Loop       | `n14_informe_final.md`     | ✅ done     |
+| L3G  | Layer 3 Graph           | Loop       | `layer3_graph.md`          | ✅ done     |
+| API3 | API Layer 3 Endpoint    | API        | `api_layer3.md`            | ✅ done     |
 | COST | Estrategia de Costos    | Transversal| `cost_strategy.md`         | ✅ req done |
-| MEM  | Memory Layer            | Transversal| `mem_memory_layer.md`      | ✅ req done |
+| MEM  | Memory Layer            | Transversal| `mem_memory_layer.md`      | ✅ done     |
 | AUTH | Autenticación y Autorización | Transversal | `_auth_strategy.md`   | ✅ req done |
 | ONB  | Onboarding de Identidad | Transversal| `n10_onboarding_identidad.md` | ✅ req done |
 

@@ -28,6 +28,21 @@ from supabase import create_client, Client
 
 from agents import CashReconciliationAgent, OperativeCostAgent, BusinessHealthAgent
 from agents.gatekeeper import GatekeeperAgent
+from agents.calc_engine import run_calc_engine, CalcRunRequest, CalcRunResult
+from agents.forensic_cfo import ForensicCFOAgent, ForensicReport
+from agents.ceo_orchestrator import (
+    N05CEOOrchestrator,
+    OrchestratorResult,
+    AuditInsight,
+)
+from agents.parallel_orchestrator import (
+    N06ParallelOrchestrator,
+    Layer2RunPayload,
+    ParallelGatherResult,
+    CircuitResetPayload,
+)
+from utils.memory_service import MemoryService, MemoryChunk
+from agents.layer3_graph import build_layer3_graph
 from agents.pos_parser import extract_pos_data, POSExtractResult
 from agents.factura_parser import (
     extract_factura_xml,
@@ -39,6 +54,30 @@ from agents.factura_parser import (
 from core.config import settings
 
 app = FastAPI(title="MEPIA Agents API")
+
+# ---------------------------------------------------------------------------
+# Singleton de MemoryService — inicializado en startup
+# Spec: mem_memory_layer.md
+# ---------------------------------------------------------------------------
+_memory_service: Optional[MemoryService] = None
+_layer3_app = None  # Inicializado en startup con build_layer3_graph(memory_service)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Inicializa MemoryService y layer3_app al arrancar el servidor."""
+    global _memory_service, _layer3_app
+    db = get_supabase()
+    _memory_service = MemoryService(supabase_client=db)
+    _layer3_app = build_layer3_graph(_memory_service)
+
+
+def get_memory_service() -> MemoryService:
+    """Retorna el singleton de MemoryService. Crea uno nuevo si no existe."""
+    global _memory_service
+    if _memory_service is None:
+        _memory_service = MemoryService(supabase_client=get_supabase())
+    return _memory_service
 
 # En prod, reemplazar por el dominio real del frontend.
 _ALLOWED_ORIGINS = (
@@ -1438,3 +1477,758 @@ async def get_gatekeeper_status(
 
     # 5. Retornar GatekeeperResult
     return result
+
+
+# ===========================================================================
+# S3 Motor de Cálculo — POST /calc/run
+# Spec: .kiro/specs/mepia/s3_motor_calculo.md
+# ===========================================================================
+
+@app.post("/calc/run", response_model=CalcRunResult)
+async def run_calc(payload: CalcRunRequest):
+    """
+    POST /calc/run
+    Ejecuta el Motor de Cálculo S3 para un negocio y fecha.
+
+    Flujo:
+        1. Verificar que el negocio existe
+        2. Obtener GatekeeperResult actual (evalúa si no hay registros)
+        3. Ejecutar run_calc_engine() con las métricas active
+        4. Retornar CalcRunResult con results[] y skipped_metrics[]
+
+    HTTP 409 si no hay ninguna métrica active (S2 no ha corrido o todo dormant).
+    Spec: s3_motor_calculo.md
+    """
+    db = get_supabase()
+
+    # 1. Verificar que el negocio existe
+    _verify_business_exists(db, payload.business_id)
+
+    # 2. Obtener estado del Gatekeeper
+    agent = GatekeeperAgent(db)
+    gk_result = await asyncio.to_thread(agent.get_status, payload.business_id, payload.date)
+
+    # Si no hay registros → evaluar primero
+    if (
+        not gk_result.active_metrics
+        and not gk_result.dormant_metrics
+        and not gk_result.blocked_metrics
+    ):
+        gk_result = await asyncio.to_thread(
+            agent.evaluate, payload.business_id, payload.date
+        )
+
+    # 3. Si no hay métricas active → 409 (S3 no tiene nada que calcular)
+    if not gk_result.active_metrics:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "No hay métricas active para calcular. Completar ingesta de datos primero.",
+                "dormant_metrics": [dm.model_dump() for dm in gk_result.dormant_metrics],
+                "blocked_metrics": [bm.model_dump() for bm in gk_result.blocked_metrics],
+            },
+        )
+
+    # 4. Ejecutar Motor de Cálculo
+    calc_result = await asyncio.to_thread(
+        run_calc_engine,
+        gk_result,
+        db,
+        payload.date,
+        payload.business_id,
+    )
+
+    return calc_result
+
+
+# ===========================================================================
+# S4 Forensic CFO — POST /audit/run
+# Spec: .kiro/specs/mepia/s4_auditoria_ia.md
+# ===========================================================================
+
+class AuditRunPayload(BaseModel):
+    """
+    Payload de POST /audit/run — exclusivo de S4 Forensic CFO.
+    Sin arquetipo: el arquetipo es responsabilidad de N05.
+    Spec: s4_auditoria_ia.md §Endpoint
+    """
+    business_id: str
+    date: str  # YYYY-MM-DD
+
+
+@app.post("/audit/run", response_model=ForensicReport)
+async def run_audit(payload: AuditRunPayload):
+    """
+    POST /audit/run
+    Ejecuta el Forensic CFO (S4) para un negocio y fecha.
+
+    Flujo:
+        1. Verificar que el negocio existe (404 si no)
+        2. Verificar que S3 corrió — hay métricas active en metric_status (409 si no)
+        3. Recuperar CalcResult[] desde audit_results (node_id="S3")
+        4. Recuperar daily_context.tags del día
+        5. Ejecutar ForensicCFOAgent.run()
+        6. Persistir ForensicReport en audit_results con node_id="S4"
+        7. Retornar ForensicReport
+
+    Spec: s4_auditoria_ia.md
+    """
+    db = get_supabase()
+
+    # 1. Verificar que el negocio existe
+    _verify_business_exists(db, payload.business_id)
+
+    # 2. Verificar que S3 corrió — buscar registro en audit_results con node_id="S3"
+    s3_check = (
+        db.table("audit_results")
+        .select("id, result_data")
+        .eq("business_id", payload.business_id)
+        .eq("date", payload.date)
+        .eq("node_id", "S3")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+
+    if not s3_check.data:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"S3 no ha corrido para business_id='{payload.business_id}' "
+                f"y date='{payload.date}'. Ejecutar POST /calc/run primero."
+            ),
+        )
+
+    # 3. Extraer CalcResult[] del último run de S3
+    s3_result_data = s3_check.data[0].get("result_data") or {}
+    calc_results: list[dict] = s3_result_data.get("results", [])
+
+    if not calc_results:
+        raise HTTPException(
+            status_code=409,
+            detail="S3 corrió pero no produjo resultados. Verificar datos de ingesta.",
+        )
+
+    # 4. Recuperar daily_context.tags del día (opcional — no bloquea si no existe)
+    daily_context_tags: Optional[dict] = None
+    try:
+        ctx_resp = (
+            db.table("daily_context")
+            .select("tags")
+            .eq("business_id", payload.business_id)
+            .eq("date", payload.date)
+            .single()
+            .execute()
+        )
+        if ctx_resp.data:
+            daily_context_tags = ctx_resp.data.get("tags")
+    except Exception:
+        pass  # daily_context es opcional — observed_causality será null
+
+    # 5. Ejecutar ForensicCFOAgent
+    agent = ForensicCFOAgent()
+    report: ForensicReport = await asyncio.to_thread(
+        agent.run,
+        calc_results,
+        payload.business_id,
+        payload.date,
+        daily_context_tags,
+    )
+
+    # 6. Persistir ForensicReport en audit_results con node_id="S4"
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        db.table("audit_results").insert(
+            {
+                "id": str(uuid4()),
+                "business_id": payload.business_id,
+                "date": payload.date,
+                "pipeline_layer": "sequential",
+                "node_id": "S4",
+                "node_status": "completed",
+                "result_data": report.model_dump(mode="json"),
+                "created_at": now_iso,
+            }
+        ).execute()
+    except Exception:
+        pass  # La persistencia no bloquea el retorno
+
+    return report
+
+
+# ===========================================================================
+# N05 CEO Orchestrator — POST /orchestrator/run + GET /orchestrator/status/{run_id}
+# Spec: .kiro/specs/mepia/n05_ceo_orchestrator.md
+# ===========================================================================
+
+class OrchestratorRunPayload(BaseModel):
+    """
+    Payload de POST /orchestrator/run.
+    Spec: n05_ceo_orchestrator.md §OrchestratorRunPayload
+    """
+    business_id: str
+    date: str                                          # YYYY-MM-DD
+    archetype: Literal[
+        "Operative Genius", "Product Purist", "Growth Hacker"
+    ] = "Operative Genius"
+    escalate_to_parallel: bool = True
+    temporalidad: Literal["short", "medium", "long"] = "short"
+
+
+@app.post("/orchestrator/run", response_model=OrchestratorResult)
+async def orchestrator_run(payload: OrchestratorRunPayload):
+    """
+    POST /orchestrator/run
+    Ejecuta el pipeline completo: S3 → S4 → N05 síntesis con arquetipo CEO.
+
+    Prerequisitos verificados:
+        1. business_id existe en businesses (404 si no)
+        2. S2 corrió y hay al menos 1 métrica active (409 si no)
+        3. No hay documentos con needs_human_review=true sin resolver (409 si hay)
+
+    Spec: n05_ceo_orchestrator.md
+    """
+    db = get_supabase()
+
+    # 1. Verificar que el negocio existe
+    _verify_business_exists(db, payload.business_id)
+
+    # 2. Verificar fecha no futura
+    try:
+        run_date = date_type.fromisoformat(payload.date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Formato de fecha inválido. Usar YYYY-MM-DD.")
+
+    if run_date > datetime.now(timezone.utc).date():
+        raise HTTPException(status_code=422, detail="La fecha no puede ser futura.")
+
+    # 3. Verificar que S2 corrió y hay métricas active
+    gk_agent = GatekeeperAgent(db)
+    gk_result = await asyncio.to_thread(gk_agent.get_status, payload.business_id, payload.date)
+
+    if not gk_result.active_metrics and not gk_result.dormant_metrics and not gk_result.blocked_metrics:
+        gk_result = await asyncio.to_thread(gk_agent.evaluate, payload.business_id, payload.date)
+
+    if not gk_result.active_metrics:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "No hay métricas active. Completar ingesta de datos primero.",
+                "dormant_metrics": [dm.model_dump() for dm in gk_result.dormant_metrics],
+                "blocked_metrics": [bm.model_dump() for bm in gk_result.blocked_metrics],
+            },
+        )
+
+    # 4. Verificar que no hay documentos pendientes de revisión humana
+    pending_docs = (
+        db.table("documents")
+        .select("id")
+        .eq("business_id", payload.business_id)
+        .eq("needs_human_review", True)
+        .execute()
+    )
+    if pending_docs.data:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Hay {len(pending_docs.data)} documento(s) pendiente(s) de revisión humana. "
+                "Resolver antes de ejecutar el pipeline."
+            ),
+        )
+
+    # 5. Ejecutar N05 CEO Orchestrator (S3 → S4 → síntesis)
+    try:
+        orchestrator = N05CEOOrchestrator(db)
+        result: OrchestratorResult = await asyncio.to_thread(
+            orchestrator.run,
+            payload.business_id,
+            payload.date,
+            payload.archetype,
+            payload.escalate_to_parallel,
+            payload.temporalidad,
+        )
+    except RuntimeError as exc:
+        # Layer 2 falló → 503
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    return result
+
+
+@app.get("/orchestrator/status/{run_id}")
+async def orchestrator_status(run_id: str):
+    """
+    GET /orchestrator/status/{run_id}
+    Retorna el estado actual de una ejecución del orquestador.
+    Spec: n05_ceo_orchestrator.md §GET /orchestrator/status
+    """
+    db = get_supabase()
+
+    result = (
+        db.table("audit_results")
+        .select("*")
+        .eq("id", run_id)
+        .eq("node_id", "N05")
+        .single()
+        .execute()
+    )
+
+    if not result.data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Run '{run_id}' no encontrado.",
+        )
+
+    row = result.data
+    result_data = row.get("result_data") or {}
+
+    return {
+        "run_id": run_id,
+        "business_id": row.get("business_id"),
+        "date": row.get("date"),
+        "pipeline_status": result_data.get("pipeline_status", "completed"),
+        "current_node": "N05_synthesis",
+        "completed_at": row.get("created_at"),
+    }
+
+
+# ===========================================================================
+# N06 Orquestador ADK — Layer 2 endpoints
+# Spec: .kiro/specs/mepia/n06_orchestrator_adk.md
+# ===========================================================================
+
+@app.post("/layer2/run", response_model=ParallelGatherResult)
+async def layer2_run(payload: Layer2RunPayload):
+    """
+    POST /layer2/run
+    Ejecuta el scatter-gather de Layer 2 (N07, N08, N09) en paralelo.
+
+    Idempotente: mismo layer2_run_id → retorna resultado existente.
+    HTTP 503 si gather_status="failed" (los 3 nodos fallaron).
+    Spec: n06_orchestrator_adk.md
+    """
+    db = get_supabase()
+    _verify_business_exists(db, payload.business_id)
+
+    orchestrator = N06ParallelOrchestrator(db)
+    result = await orchestrator.run(payload)
+
+    if result.gather_status == "failed":
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "Los 3 nodos de Layer 2 fallaron.",
+                "layer2_run_id": result.layer2_run_id,
+                "node_results": [r.model_dump() for r in result.node_results],
+            },
+        )
+
+    return result
+
+
+@app.get("/layer2/status/{layer2_run_id}")
+async def layer2_status(layer2_run_id: str):
+    """
+    GET /layer2/status/{layer2_run_id}
+    Consulta el estado de una ejecución de Layer 2.
+    P11: siempre HTTP 200 si el run existe, nunca 404.
+    Spec: n06_orchestrator_adk.md
+    """
+    db = get_supabase()
+
+    resp = (
+        db.table("audit_results")
+        .select("*")
+        .eq("id", layer2_run_id)
+        .eq("node_id", "N06")
+        .single()
+        .execute()
+    )
+
+    if not resp.data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"layer2_run_id '{layer2_run_id}' no encontrado.",
+        )
+
+    row = resp.data
+    result_data = row.get("result_data") or {}
+    gather_status = result_data.get("gather_status", row.get("node_status", "unknown"))
+
+    node_results = result_data.get("node_results", [])
+    nodes_completed = sum(1 for n in node_results if n.get("status") == "success")
+    nodes_pending = [
+        n["node_id"] for n in node_results
+        if n.get("status") not in ("success", "timeout", "error")
+    ]
+
+    return {
+        "layer2_run_id": layer2_run_id,
+        "gather_status": gather_status,
+        "nodes_completed": nodes_completed,
+        "nodes_pending": nodes_pending,
+        "started_at": row.get("created_at"),
+        "completed_at": result_data.get("completed_at"),
+    }
+
+
+@app.post("/layer2/circuit-reset")
+async def layer2_circuit_reset(payload: CircuitResetPayload):
+    """
+    POST /layer2/circuit-reset
+    Resetea manualmente el circuit breaker de un nodo.
+    HTTP 409 si el nodo no está en circuit_open.
+    Spec: n06_orchestrator_adk.md
+    """
+    db = get_supabase()
+    _verify_business_exists(db, payload.business_id)
+
+    # Verificar estado actual del circuit breaker
+    resp = (
+        db.table("circuit_breaker_state")
+        .select("*")
+        .eq("business_id", payload.business_id)
+        .eq("date", payload.date)
+        .eq("node_id", payload.node_id)
+        .execute()
+    )
+
+    if not resp.data:
+        raise HTTPException(
+            status_code=409,
+            detail=f"No hay registro de circuit breaker para node_id='{payload.node_id}'. Reset innecesario.",
+        )
+
+    row = resp.data[0]
+    if row.get("circuit_status") != "circuit_open":
+        raise HTTPException(
+            status_code=409,
+            detail=f"El nodo '{payload.node_id}' no está en circuit_open. Estado actual: {row.get('circuit_status')}.",
+        )
+
+    # Resetear: consecutive_failures=0, circuit_status="closed"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    db.table("circuit_breaker_state").update(
+        {
+            "consecutive_failures": 0,
+            "circuit_status": "closed",
+            "reset_by": payload.reset_by,
+            "updated_at": now_iso,
+        }
+    ).eq("id", row["id"]).execute()
+
+    return {
+        "node_id": payload.node_id,
+        "business_id": payload.business_id,
+        "date": payload.date,
+        "circuit_status": "closed",
+        "reset_by": payload.reset_by,
+        "reset_at": now_iso,
+    }
+
+
+# ===========================================================================
+# MemoryService — POST /memory/store + GET /admin/memory/reconcile
+# Spec: .kiro/specs/mepia/mem_memory_layer.md
+# ===========================================================================
+
+from fastapi import BackgroundTasks
+
+
+@app.post("/memory/store", status_code=202)
+async def memory_store(chunk: MemoryChunk, background_tasks: BackgroundTasks):
+    """
+    POST /memory/store
+    Persiste un MemoryChunk en mepia_memory con status='pending_embed'.
+    Responde 202 inmediatamente — el embedding se genera en BackgroundTask.
+
+    Solo accesible para nodos N12, N13 y el proceso de onboarding.
+    Spec: mem_memory_layer.md §store_memory
+    """
+    memory = get_memory_service()
+
+    # Insertar chunk(s) en mepia_memory con status='pending_embed'
+    await memory.store_memory(chunk)
+
+    # Disparar embedding en background (no bloquea la respuesta)
+    from utils.embedding_worker import process_pending_embeddings
+    db = get_supabase()
+    background_tasks.add_task(process_pending_embeddings, db, 10)
+
+    return {
+        "status": "accepted",
+        "message": "Chunk(s) insertados. Embedding se generará en background.",
+        "business_id": chunk.business_id,
+        "node_origin": chunk.node_origin,
+    }
+
+
+@app.get("/admin/memory/reconcile")
+async def memory_reconcile(background_tasks: BackgroundTasks):
+    """
+    GET /admin/memory/reconcile
+    Reintenta generar embeddings para chunks en status='pending_embed' o 'failed'.
+    Útil para reconciliación manual o al arrancar el servidor.
+    Spec: mem_memory_layer.md §Reconciliación al arranque
+    """
+    from utils.embedding_worker import process_pending_embeddings
+    db = get_supabase()
+
+    # Ejecutar en background para no bloquear
+    background_tasks.add_task(process_pending_embeddings, db, 100)
+
+    return {
+        "status": "accepted",
+        "message": "Reconciliación iniciada en background. Revisar logs para resultado.",
+    }
+
+
+# ===========================================================================
+# Layer 3 — POST /api/audit/layer3/run + GET status + GET result
+# Spec: .kiro/specs/mepia/api_layer3.md
+# ===========================================================================
+
+class Layer3RunPayload(BaseModel):
+    """Payload de POST /api/audit/layer3/run."""
+    audit_run_id: Optional[str] = None        # UUID del run de Layer 2 (modo normal)
+    layer2_run_id: Optional[str] = None       # si None en modo aislado → genera "isolated_"
+    sequential_run_id: Optional[str] = None   # si None en modo aislado → genera "isolated_"
+    # Campos requeridos en modo aislado
+    business_id: Optional[str] = None
+    date: Optional[str] = None
+    archetype: Optional[Literal["Operative Genius", "Product Purist", "Growth Hacker"]] = None
+    enriched_payload: Optional[dict] = None   # EnrichedAuditPayload pre-construido (opcional)
+
+
+@app.post("/api/audit/layer3/run", status_code=202)
+async def layer3_run(payload: Layer3RunPayload, background_tasks: BackgroundTasks):
+    """
+    POST /api/audit/layer3/run
+    Dispara el grafo Layer 3 en background. Responde 202 inmediatamente.
+
+    Modo normal: audit_run_id presente → reconstruye contexto desde audit_results.
+    Modo aislado: audit_run_id ausente → usa business_id/date/archetype del body.
+
+    Spec: api_layer3.md
+    """
+    global _layer3_app
+    db = get_supabase()
+
+    layer3_run_id = str(uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    if payload.audit_run_id:
+        # ── Modo normal ───────────────────────────────────────────────────────
+        # Verificar que el audit_run_id existe
+        run_resp = (
+            db.table("audit_results")
+            .select("*")
+            .eq("id", payload.audit_run_id)
+            .eq("node_id", "N06")
+            .single()
+            .execute()
+        )
+        if not run_resp.data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"audit_run_id '{payload.audit_run_id}' no encontrado en Layer 2.",
+            )
+
+        # Idempotencia: verificar si ya existe un layer3 para este run
+        existing_l3 = (
+            db.table("audit_results")
+            .select("id")
+            .eq("node_id", "N10")
+            .execute()
+        )
+        # Buscar por layer2_run_id en result_data
+        for row in (existing_l3.data or []):
+            rd = row.get("result_data") or {}
+            if rd.get("layer2_run_id") == payload.audit_run_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Ya existe un Layer 3 para audit_run_id='{payload.audit_run_id}'.",
+                )
+
+        row = run_resp.data
+        result_data = row.get("result_data") or {}
+        business_id = row.get("business_id")
+        date_str = row.get("date")
+        archetype = result_data.get("archetype", "Operative Genius")
+        layer2_run_id = payload.audit_run_id
+        sequential_run_id = result_data.get("sequential_run_id", f"isolated_{uuid4()}")
+        execution_mode = "normal"
+        pgr = result_data  # ParallelGatherResult serializado
+
+    else:
+        # ── Modo aislado ──────────────────────────────────────────────────────
+        if not payload.business_id or not payload.date or not payload.archetype:
+            raise HTTPException(
+                status_code=422,
+                detail="Modo aislado requiere business_id, date y archetype.",
+            )
+        _verify_business_exists(db, payload.business_id)
+
+        business_id = payload.business_id
+        date_str = payload.date
+        archetype = payload.archetype
+        layer2_run_id = payload.layer2_run_id or f"isolated_{uuid4()}"
+        sequential_run_id = payload.sequential_run_id or f"isolated_{uuid4()}"
+        execution_mode = "isolated"
+        pgr = {}
+
+    # Verificar onboarding completo (HTTP 412 si no hay chunk de onboarding)
+    onboarding_resp = (
+        db.table("mepia_memory")
+        .select("id")
+        .eq("business_id", business_id)
+        .execute()
+    )
+    has_onboarding = any(
+        (r.get("metadata") or {}).get("node_origin") == "onboarding"
+        for r in (onboarding_resp.data or [])
+    )
+    if not has_onboarding:
+        raise HTTPException(
+            status_code=412,
+            detail={
+                "error": "onboarding_required",
+                "message": "El negocio no tiene onboarding completo. Ejecutar POST /business/{id}/onboarding primero.",
+            },
+        )
+
+    # Construir estado inicial
+    initial_state = {
+        "layer3_run_id": layer3_run_id,
+        "layer2_run_id": layer2_run_id,
+        "sequential_run_id": sequential_run_id,
+        "business_id": business_id,
+        "date": date_str,
+        "archetype": archetype,
+        "enriched_payload": payload.enriched_payload or {},
+        "draft_report": None,
+        "intentos_critico": 0,
+        "feedback_critico": None,
+        "historial_feedback": [],
+        "tipos_falla_critico": [],
+        "draft_status": "pending",
+        "audit_results": [],
+        "final_response": None,
+        # Inyección de dependencias para los nodos
+        "_db": db,
+        "_memory_service": get_memory_service(),
+        "_parallel_gather_result": pgr,
+    }
+
+    # Inicializar layer3_app si no está listo
+    if _layer3_app is None:
+        from agents.layer3_graph import build_layer3_graph
+        _layer3_app = build_layer3_graph(get_memory_service())
+
+    # Ejecutar grafo en background — responde 202 inmediatamente
+    background_tasks.add_task(_layer3_app.ainvoke, initial_state)
+
+    return {
+        "layer3_run_id": layer3_run_id,
+        "audit_run_id": payload.audit_run_id,
+        "layer2_run_id": layer2_run_id,
+        "sequential_run_id": sequential_run_id,
+        "execution_mode": execution_mode,
+        "status": "running",
+        "started_at": now_iso,
+    }
+
+
+@app.get("/api/audit/layer3/status/{layer3_run_id}")
+async def layer3_status(layer3_run_id: str):
+    """
+    GET /api/audit/layer3/status/{layer3_run_id}
+    Polling del estado del grafo Layer 3.
+    Spec: api_layer3.md
+    """
+    db = get_supabase()
+
+    # Buscar el registro de N14 (terminal) o N10 (inicio)
+    n14_resp = (
+        db.table("audit_results")
+        .select("*")
+        .eq("node_id", "N14")
+        .execute()
+    )
+    for row in (n14_resp.data or []):
+        rd = row.get("result_data") or {}
+        if rd.get("layer3_run_id") == layer3_run_id:
+            return {
+                "layer3_run_id": layer3_run_id,
+                "status": "completed",
+                "draft_status": rd.get("draft_status"),
+                "current_node": "END",
+                "intentos_critico": rd.get("intentos_critico", 0),
+                "started_at": None,
+                "completed_at": rd.get("finalized_at"),
+            }
+
+    # Buscar N10 para confirmar que el run existe
+    n10_resp = (
+        db.table("audit_results")
+        .select("*")
+        .eq("node_id", "N10")
+        .execute()
+    )
+    for row in (n10_resp.data or []):
+        rd = row.get("result_data") or {}
+        if rd.get("layer3_run_id") == layer3_run_id:
+            return {
+                "layer3_run_id": layer3_run_id,
+                "status": "running",
+                "current_node": "n11_consultor",
+                "intentos_critico": 0,
+                "started_at": rd.get("built_at"),
+                "completed_at": None,
+            }
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"layer3_run_id '{layer3_run_id}' no encontrado.",
+    )
+
+
+@app.get("/api/audit/layer3/result/{layer3_run_id}")
+async def layer3_result(layer3_run_id: str):
+    """
+    GET /api/audit/layer3/result/{layer3_run_id}
+    Retorna el FinalReport completo.
+    HTTP 409 si el grafo aún no completó.
+    Spec: api_layer3.md
+    """
+    db = get_supabase()
+
+    n14_resp = (
+        db.table("audit_results")
+        .select("*")
+        .eq("node_id", "N14")
+        .execute()
+    )
+    for row in (n14_resp.data or []):
+        rd = row.get("result_data") or {}
+        if rd.get("layer3_run_id") == layer3_run_id:
+            return rd
+
+    # Verificar si existe pero aún no completó
+    n10_resp = (
+        db.table("audit_results")
+        .select("id")
+        .eq("node_id", "N10")
+        .execute()
+    )
+    for row in (n10_resp.data or []):
+        rd = row.get("result_data") or {}
+        if rd.get("layer3_run_id") == layer3_run_id:
+            raise HTTPException(
+                status_code=409,
+                detail="El grafo Layer 3 aún no completó. Usar GET /status para verificar.",
+            )
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"layer3_run_id '{layer3_run_id}' no encontrado.",
+    )
