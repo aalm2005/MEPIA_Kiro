@@ -135,6 +135,8 @@ export function useAuditPolling(
                 `/api/audit/layer3/status/${layer2RunId}`
               );
               if (!l3Res.ok) {
+                // 404 means Layer 3 hasn't started yet — not an error
+                if (l3Res.status === 404) return;
                 throw new Error(
                   `Error fetching Layer 3 status: ${l3Res.status} ${l3Res.statusText}`
                 );

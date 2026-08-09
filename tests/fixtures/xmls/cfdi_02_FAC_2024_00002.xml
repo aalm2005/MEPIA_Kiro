@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    Version="4.0"
+    Fecha="2024-02-01T12:00:00"
+    Folio="FAC-2024-00002"
+    SubTotal="198.12"
+    Total="229.82"
+    Moneda="MXN"
+    TipoDeComprobante="I">
+  <cfdi:Emisor
+      Nombre="Carnes Selectas del Norte SA"
+      Rfc="CSN170820DDD"
+      RegimenFiscal="601"/>
+  <cfdi:Receptor
+      Nombre="MEPIA Test Business"
+      Rfc="XEXX010101000"
+      UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto
+        Descripcion="Azúcar refinada 10kg"
+        Cantidad="1"
+        ValorUnitario="198.12"
+        Importe="198.12"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="31.7">
+    <cfdi:Traslados>
+      <cfdi:Traslado
+          Impuesto="002"
+          TipoFactor="Tasa"
+          TasaOCuota="0.160000"
+          Importe="31.7"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+</cfdi:Comprobante>

@@ -25,18 +25,51 @@ export default function ReviewAlert({
     setFieldValues((prev) => ({ ...prev, [field]: value }));
   }
 
+  /**
+   * Builds the structured payload expected by FastAPI review endpoints.
+   * POS  → POSReviewPayload:     { date, totals: { cash, card, total }, payment_methods? }
+   * Factura → FacturaReviewPayload: { transaction_date, amount, tax_amount, supplier_name, concept, document_reference }
+   */
+  function buildReviewPayload(): Record<string, unknown> {
+    if (documentType === "pos") {
+      return {
+        date: fieldValues["date"] ?? fieldValues["date"] ?? "",
+        totals: {
+          total: parseFloat(fieldValues["totals.total"] ?? fieldValues["totals"] ?? "0"),
+          cash: parseFloat(fieldValues["totals.cash"] ?? "0"),
+          card: parseFloat(fieldValues["totals.card"] ?? "0"),
+        },
+        payment_methods: {
+          cash: parseFloat(fieldValues["totals.cash"] ?? fieldValues["payment_methods"] ?? "0"),
+          card: parseFloat(fieldValues["totals.card"] ?? "0"),
+          other: 0,
+        },
+      };
+    }
+    // Factura — campos planos directos
+    return {
+      transaction_date: fieldValues["transaction_date"] ?? "",
+      amount: parseFloat(fieldValues["amount"] ?? "0"),
+      tax_amount: parseFloat(fieldValues["tax_amount"] ?? "0"),
+      supplier_name: fieldValues["supplier_name"] ?? "",
+      concept: fieldValues["concept"] ?? "",
+      document_reference: fieldValues["document_reference"] ?? "",
+    };
+  }
+
   async function handleConfirm() {
     setIsSubmitting(true);
     setError(null);
 
     try {
-      const res = await fetch("/api/upload/review", {
+      const reviewPayload = buildReviewPayload();
+      const res = await fetch("/api/upload", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           file_id: fileId,
           document_type: documentType,
-          field_corrections: fieldValues,
+          ...reviewPayload,
         }),
       });
 

@@ -50,7 +50,7 @@ class CalcResult(BaseModel):
 
 class ContributionMarginInput(BaseModel):
     """Input para calc_contribution_margin."""
-    product_id: str                    # FK a recipes.product_id
+    product_id: str                    # FK a recipes.id
 
 
 class BreakEvenInput(BaseModel):
@@ -187,7 +187,7 @@ def calc_contribution_margin(product_id: str, db: Any) -> CalcResult:
         receta_resp = (
             db.table("recipes")
             .select("sale_price, ingredients")
-            .eq("product_id", product_id)
+            .eq("id", product_id)
             .single()
             .execute()
         )
@@ -347,7 +347,7 @@ def calc_daily_break_even(business_id: str, date: str, db: Any) -> CalcResult:
         # --- 2. MC promedio de todos los productos con receta ---
         recetas_resp = (
             db.table("recipes")
-            .select("product_id, sale_price, ingredients")
+            .select("id, sale_price, ingredients")
             .eq("business_id", business_id)
             .execute()
         )
@@ -355,7 +355,7 @@ def calc_daily_break_even(business_id: str, date: str, db: Any) -> CalcResult:
 
         mc_valores: list[Decimal] = []
         for receta in recetas:
-            pid = receta["product_id"]
+            pid = receta["id"]
             # Reutilizamos calc_contribution_margin para obtener el MC de cada producto
             resultado = calc_contribution_margin(pid, db)
             if resultado.status == "ok" or resultado.status == "warning" or resultado.status == "critical":
@@ -487,7 +487,7 @@ def calc_waste_analysis(
         # Buscar todas las recetas que usan este ingrediente
         recetas_resp = (
             db.table("recipes")
-            .select("product_id, ingredients")
+            .select("id, ingredients")
             .eq("business_id", business_id)
             .execute()
         )
@@ -502,7 +502,7 @@ def calc_waste_analysis(
         consumo_teorico = Decimal("0")
 
         for receta in recetas_con_ing:
-            pid = receta["product_id"]
+            pid = receta["id"]
             ing_info = receta["ingredients"][ingredient_id]
 
             # ing_info puede ser un número (qty) o un dict {"qty": x, "unit": y}
@@ -982,11 +982,11 @@ def run_calc_engine(
             try:
                 recetas_resp = (
                     db.table("recipes")
-                    .select("product_id")
+                    .select("id")
                     .eq("business_id", business_id)
                     .execute()
                 )
-                product_ids = [r["product_id"] for r in (recetas_resp.data or [])]
+                product_ids = [r["id"] for r in (recetas_resp.data or [])]
 
                 if not product_ids:
                     results.append(

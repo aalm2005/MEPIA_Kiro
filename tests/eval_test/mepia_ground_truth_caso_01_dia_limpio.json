@@ -1,0 +1,123 @@
+{
+  "id": "caso_01_dia_limpio",
+  "tipo": "dia_completo_sintetico",
+  "escenario_narrativo": "Día normal, sin anomalías inyectadas. Control negativo — confirma que el sistema no inventa problemas donde no los hay. Es tan importante como el Caso 2, solo que prueba lo opuesto: ausencia de falsos positivos, no detección correcta de un problema real.",
+
+  "anomalias_inyectadas": [],
+
+  "notas_construccion": [
+    "Compacto: 11 órdenes en vez de ~150, mismo criterio que el Caso 2 — el comportamiento aritmético de las métricas no depende del volumen de órdenes, solo de los totales agregados.",
+    "A diferencia del Caso 2, aquí los montos por orden sí se mantuvieron cerca del ticket promedio base del proyecto (~$185 MXN) — el ticket promedio de este caso da $167.02, razonablemente comparable.",
+    "QA encontrado al construir este caso (dejo la nota porque es información útil, no solo un dato curioso): el primer borrador tenía una orden de cortesía de $174 MXN, que sin querer hacía que calc_staff_courtesy_ratio saliera en 8.85% — por encima del umbral informal de 3% mencionado en el Escenario 6. Un 'día limpio' que dispara una alerta por accidente invalidaría el caso como control negativo. Se ajustó la cortesía a $45 MXN (2.45%, por debajo del umbral) para que el caso sea genuinamente limpio.",
+    "Segundo QA por la misma razón: el primer borrador de current_stock de café en grano (20kg) daba calc_stock_days_remaining = 6.67 días, cruzando el umbral de warning (<7 días). Se subió a 30kg (10 días) para que tampoco dispare. Moraleja para los siguientes casos 'limpios': hay que revisar CADA métrica contra su umbral antes de dar el caso por bueno, no solo la que el escenario pretende probar."
+  ],
+
+  "config_negocio": {
+    "multi_sucursal": false,
+    "comisiones_delivery": { "UberEats": 0.27, "Rappi": 0.25, "DiDiFood": 0.25 },
+    "umbrales": {
+      "cash_variance": { "flag_pct": 0.01, "flag_piso_mxn": 100.00, "critical_pct": 0.03, "critical_piso_mxn": 500.00 },
+      "staff_courtesy_ratio": { "flag_pct": 0.03 },
+      "stock_days_remaining": { "warning_dias": 7, "critical_dias": 3 }
+    }
+  },
+
+  "input": {
+    "negocio_id": "PILOTO-001",
+    "fecha": "2026-08-03",
+    "turnos": [
+      {
+        "turno_id": "T1",
+        "cajero_id": "C-01",
+        "hora_apertura": "07:00",
+        "hora_cierre": "15:00",
+        "shift_data": {
+          "saldo_inicial": 1000.00,
+          "cierre_x_hora": "15:05",
+          "cierre_z_hora": "15:10",
+          "saldo_final_contado": 1394.40
+        },
+        "clock_in_out": [
+          { "empleado_id": "C-01", "clock_in": "06:55", "clock_out": "15:05" }
+        ],
+        "cancellations": [],
+        "reprints": [],
+        "ordenes": [
+          {
+            "order_id": "T1-001", "timestamp": "07:20", "sucursal_id": "SUC-01",
+            "cajero_id": "C-01", "order_type": "Comedor",
+            "subtotal": 140.00, "tax": 22.40, "discounts": 0.00, "total_net": 162.40,
+            "forma_de_pago": "Efectivo",
+            "detalle_producto": [
+              { "item_id": "P-150", "product_name": "Chilaquiles Verdes con Pollo", "group": "Alimentos", "subgroup": "Platos Fuertes", "variant_modifier": null, "unit_price": 95.00, "quantity": 1, "item_discount": 0.00 },
+              { "item_id": "P-410", "product_name": "Jugo de Naranja Natural", "group": "Bebidas", "subgroup": "Jugos", "variant_modifier": null, "unit_price": 45.00, "quantity": 1, "item_discount": 0.00 }
+            ]
+          },
+          { "order_id": "T1-002", "timestamp": "08:30", "sucursal_id": "SUC-01", "cajero_id": "C-01", "order_type": "Para llevar", "subtotal": 75.00, "tax": 12.00, "discounts": 0.00, "total_net": 87.00, "forma_de_pago": "Tarjeta_Clip" },
+          { "order_id": "T1-003", "timestamp": "10:00", "sucursal_id": "SUC-01", "cajero_id": "C-01", "order_type": "Comedor", "subtotal": 200.00, "tax": 32.00, "discounts": 0.00, "total_net": 232.00, "forma_de_pago": "Efectivo" },
+          { "order_id": "T1-004", "timestamp": "11:45", "sucursal_id": "SUC-01", "cajero_id": "C-01", "order_type": "Delivery App", "subtotal": 130.00, "tax": 20.80, "discounts": 0.00, "total_net": 150.80, "forma_de_pago": "Rappi" },
+          { "order_id": "T1-005", "timestamp": "13:30", "sucursal_id": "SUC-01", "cajero_id": "C-01", "order_type": "Comedor", "subtotal": 180.00, "tax": 28.80, "discounts": 0.00, "total_net": 208.80, "forma_de_pago": "Tarjetas_Lealtad" }
+        ]
+      },
+      {
+        "turno_id": "T2",
+        "cajero_id": "C-02",
+        "hora_apertura": "15:00",
+        "hora_cierre": "23:00",
+        "shift_data": {
+          "saldo_inicial": 1000.00,
+          "cierre_x_hora": "23:05",
+          "cierre_z_hora": "23:10",
+          "saldo_final_contado": 1638.00
+        },
+        "clock_in_out": [
+          { "empleado_id": "C-02", "clock_in": "14:55", "clock_out": "23:05" }
+        ],
+        "cancellations": [],
+        "reprints": [],
+        "ordenes": [
+          {
+            "order_id": "T2-001", "timestamp": "15:45", "sucursal_id": "SUC-01",
+            "cajero_id": "C-02", "order_type": "Comedor",
+            "subtotal": 210.00, "tax": 33.60, "discounts": 0.00, "total_net": 243.60,
+            "forma_de_pago": "Efectivo",
+            "detalle_producto": [
+              { "item_id": "P-301", "product_name": "Pizza Individual Margarita", "group": "Alimentos", "subgroup": "Platos Fuertes", "variant_modifier": "extra albahaca", "unit_price": 120.00, "quantity": 1, "item_discount": 0.00 },
+              { "item_id": "P-101", "product_name": "Café Americano Grande", "group": "Bebidas", "subgroup": "Métodos Filtrados", "variant_modifier": "leche deslactosada", "unit_price": 45.00, "quantity": 2, "item_discount": 0.00 }
+            ]
+          },
+          { "order_id": "T2-002", "timestamp": "17:00", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Para llevar", "subtotal": 95.00, "tax": 15.20, "discounts": 0.00, "total_net": 110.20, "forma_de_pago": "Tarjeta_Clip" },
+          { "order_id": "T2-003", "timestamp": "18:30", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Comedor", "subtotal": 260.00, "tax": 41.60, "discounts": 0.00, "total_net": 301.60, "forma_de_pago": "Efectivo" },
+          { "order_id": "T2-004", "timestamp": "20:00", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Delivery App", "subtotal": 175.00, "tax": 28.00, "discounts": 0.00, "total_net": 203.00, "forma_de_pago": "UberEats" },
+          { "order_id": "T2-005", "timestamp": "21:15", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Comedor", "subtotal": 38.79, "tax": 6.21, "discounts": 0.00, "total_net": 45.00, "forma_de_pago": "Cortesía_Staff", "monto_cobrado": 0.00, "valor_cortesia": 45.00 },
+          { "order_id": "T2-006", "timestamp": "22:00", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Para llevar", "subtotal": 80.00, "tax": 12.80, "discounts": 0.00, "total_net": 92.80, "forma_de_pago": "Efectivo" }
+        ]
+      }
+    ],
+    "inventario": {
+      "insumos": [
+        { "insumo": "cafe_grano", "ingredients_usage_kg": 3.0, "waste_recorded_kg": 0.04, "current_stock_kg": 30.0, "unit_cost_mxn_kg": 220.00, "unit_cost_hace_30d_mxn_kg": 220.00 },
+        { "insumo": "leche_entera", "ingredients_usage_l": 11.0, "waste_recorded_l": 0.15, "current_stock_l": 45.0, "unit_cost_mxn_l": 24.00, "unit_cost_hace_30d_mxn_l": 24.00 }
+      ]
+    }
+  },
+
+  "esperado_S3": [
+    { "metric": "calc_shift_cash_variance", "turno": "T1", "value": 0.00, "status": "ok" },
+    { "metric": "calc_shift_cash_variance", "turno": "T2", "value": 0.00, "status": "ok" },
+    { "metric": "calc_avg_ticket", "periodo": "dia", "value": 167.02, "status": "ok", "detalle": "11 órdenes, suma total_net 1837.20" },
+    { "metric": "calc_payment_mix", "periodo": "dia", "value": { "Efectivo": 0.562, "Tarjeta_Clip": 0.107, "Rappi": 0.082, "Tarjetas_Lealtad": 0.114, "UberEats": 0.110, "Cortesía_Staff": 0.024 }, "status": "ok" },
+    { "metric": "calc_channel_mix", "periodo": "dia", "value": { "Comedor": 0.650, "Para llevar": 0.158, "Delivery App": 0.193 }, "status": "ok" },
+    { "metric": "calc_staff_courtesy_ratio", "periodo": "dia", "value": 0.0245, "status": "ok", "detalle": "2.45%, por debajo del umbral informal de 3%" },
+    { "metric": "calc_cancellation_rate", "periodo": "dia", "value": 0.00, "status": "ok" },
+    { "metric": "calc_reprint_rate", "periodo": "dia", "value": 0.00, "status": "ok" },
+    { "metric": "check_price_inflation", "insumo": "cafe_grano", "value": 0.00, "status": "ok" },
+    { "metric": "calc_waste_cost", "insumo": "cafe_grano", "value": 8.80, "status": "ok", "detalle": "0.04kg x $220/kg, dentro de rango normal" },
+    { "metric": "calc_stock_days_remaining", "insumo": "cafe_grano", "value": 10.0, "status": "ok", "detalle": "30kg / 3.0kg diarios, por encima del umbral de warning (7 días)" }
+  ],
+
+  "esperado_hallazgos": [],
+
+  "esperado_narrativa": null,
+  "revisado_por": null
+}

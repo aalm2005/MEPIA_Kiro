@@ -211,6 +211,7 @@ class N05CEOOrchestrator:
             forensic_report=forensic_report,
             archetype=archetype,
             rag_context=rag_context,
+            calc_results=calc_results_dicts,
         )
 
         # --- 6. Determinar pipeline_status ---
@@ -272,10 +273,14 @@ class N05CEOOrchestrator:
         forensic_report: ForensicReport,
         archetype: Archetype,
         rag_context: str,
+        calc_results: list[dict] | None = None,
     ) -> list[AuditInsight]:
         """
         Para cada AnomalyItem del ForensicReport genera un AuditInsight
         aplicando el CEO Cognitive Frame del arquetipo.
+
+        Además, genera insights positivos (confirmaciones) para métricas
+        con status "ok" que no tienen anomalías — el copiloto siempre habla.
 
         Correctness properties garantizadas en código:
             P6: severity "high" → alert_level "critical" (override post-LLM)
@@ -285,6 +290,7 @@ class N05CEOOrchestrator:
         frame = _CEO_FRAMES[archetype]
         observed = forensic_report.observed_causality
 
+        # --- Insights para anomalías (negativos) ---
         for anomaly in forensic_report.anomalies:
             # P6: mapeo severity → alert_level garantizado en código
             alert_level: AlertLevel = _SEVERITY_TO_ALERT.get(anomaly.severity, "info")
@@ -343,6 +349,67 @@ class N05CEOOrchestrator:
                     raw_result=anomaly.quantified_impact,
                 )
             )
+
+        # --- Insights positivos para métricas "ok" sin anomalías ---
+        if calc_results:
+            anomaly_metrics = {a.metric_origin for a in forensic_report.anomalies}
+            ok_metrics = [
+                cr for cr in calc_results
+                if cr.get("status") == "ok" and cr.get("metric") not in anomaly_metrics
+            ]
+
+            for cr in ok_metrics:
+                metric_name = cr.get("metric", "unknown")
+                value = cr.get("value", "N/A")
+                unit = cr.get("unit", "")
+                context = cr.get("context", "")
+
+                try:
+                    positive_prompt = (
+                        f"Métrica: {metric_name}\n"
+                        f"Valor: {value} {unit}\n"
+                        f"Contexto: {context}\n\n"
+                        f"Esta métrica está dentro de parámetros saludables. "
+                        f"Genera una frase breve de confirmación positiva para el dueño "
+                        f"del restaurante (arquetipo: {archetype}). "
+                        f"Incluye una sugerencia de mejora o mantenimiento. "
+                        f"Responde en JSON con campos: copilot_phrase, recommended_action."
+                    )
+                    response = self._llm.chat.completions.create(
+                        model="gpt-4o",
+                        temperature=0.3,
+                        response_format={
+                            "type": "json_schema",
+                            "json_schema": {
+                                "name": "audit_insight",
+                                "strict": True,
+                                "schema": _INSIGHT_SCHEMA,
+                            },
+                        },
+                        messages=[
+                            {"role": "system", "content": frame},
+                            {"role": "user", "content": positive_prompt},
+                        ],
+                    )
+                    llm_data = json.loads(response.choices[0].message.content)
+                    copilot_phrase = llm_data["copilot_phrase"]
+                    recommended_action = llm_data["recommended_action"]
+                except Exception:
+                    copilot_phrase = f"Tu {metric_name} está en buen estado: {value} {unit}."
+                    recommended_action = "Mantener el ritmo actual."
+
+                insights.append(
+                    AuditInsight(
+                        anomaly_ref=str(uuid4()),
+                        copilot_phrase=copilot_phrase,
+                        archetype=archetype,
+                        alert_level="info",
+                        recommended_action=recommended_action,
+                        context_weight="normal",
+                        module=metric_name,
+                        raw_result=f"{value} {unit}",
+                    )
+                )
 
         return insights
 

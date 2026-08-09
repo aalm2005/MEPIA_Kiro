@@ -8,10 +8,10 @@
 [Layer 1: Sequential — 3 sub-nodos]
 
   ┌─────────────────────────────────────────────────────────┐
-  │ S1: INGESTA (5 inputs)                                  │
-  │   POS/PDF → OCR → documents + transactions              │
+  │ S1: INGESTA (3 inputs)                                  │
+  │   POS/API (primaria) + PDF (fallback) → transactions    │
+  │   Facturas proveedor → documents + transactions         │
   │   Recipes (BOM) → tabla recipes                         │
-  │   Contexto del día → tags + texto libre → metadata JSONB│
   └──────────────────┬──────────────────────────────────────┘
                      ↓
   ┌─────────────────────────────────────────────────────────┐
@@ -28,7 +28,7 @@
                      ↓
   ┌─────────────────────────────────────────────────────────┐
   │ S4: FORENSIC CFO (IA)                                   │
-  │   Input: CalcResult[] + daily_context tags              │
+  │   Input: CalcResult[]                                   │
   │   Diagnóstico forense: fugas, discrepancias, techos     │
   │   Output: ForensicReport — sin recomendaciones          │
   └─────────────────────────────────────────────────────────┘
@@ -46,12 +46,13 @@
 
 | ID   | Nodo                    | Capa       | Archivo                    | Estado      |
 |------|-------------------------|------------|----------------------------|-------------|
-| S1   | Ingesta (5 inputs)      | Sequential | `s1_ingesta.md`            | 🔧 in dev   |
-| N01  | POS PDF Input           | Sequential | `n01_pos_pdf_input.md`     | ✅ done      |
+| S1   | Ingesta (3 inputs)      | Sequential | `s1_ingesta.md`            | 🔧 in dev   |
+| S1B  | Ingesta API (primaria)  | Sequential | `s1b_ingesta_api.md`       | 🔧 in dev   |
+| N01  | POS PDF Input (fallback)| Sequential | `n01_pos_pdf_input.md`     | ✅ done — fallback, ya no ruta primaria |
 | N02  | Facturas Proveedor Input| Sequential | `n02_facturas_input.md`    | ✅ done      |
 | N03  | Human Input Endpoints   | Sequential | `n03_human_input_endpoints.md` | ✅ req done |
 | S2   | Stand-by / Gatekeeper   | Sequential | `s2_gatekeeper.md`         | ✅ req done  |
-| S3   | Motor de Cálculo        | Sequential | `s3_motor_calculo.md`      | ✅ done      |
+| S3   | Motor de Cálculo        | Sequential | `s3_motor_calculo.md`      | 🔧 in dev — extendido con 24 métricas nuevas |
 | S4   | Forensic CFO (Auditoría IA) | Sequential | `s4_auditoria_ia.md`       | ✅ done      |
 | N05  | CEO Orchestrator (Síntesis Estratégica) | CEO Layer  | `n05_ceo_orchestrator.md`  | ✅ done     |
 | N06  | Orquestador ADK         | Parallel   | `n06_orchestrator_adk.md`  | ✅ done     |
@@ -69,10 +70,16 @@
 | MEM  | Memory Layer            | Transversal| `mem_memory_layer.md`      | ✅ done     |
 | AUTH | Autenticación y Autorización | Transversal | `_auth_strategy.md`   | ✅ req done |
 | ONB  | Onboarding de Identidad | Transversal| `n10_onboarding_identidad.md` | ✅ req done |
+| EVAL | Set de Evaluación Offline | Transversal | `eval_offline.md`       | 🔧 in dev — placeholder |
 
 - **POSIngestResult** → `n01_pos_pdf_input.md`
 - **FacturaIngestResult** → `n02_facturas_input.md`
-- **ContextTag** → `s1_ingesta.md`
+- **TicketEvent** → `s1b_ingesta_api.md`
+- **ProductLine** → `s1b_ingesta_api.md`
+- **PaymentBreakdown** → `s1b_ingesta_api.md`
+- **ShiftAuditEvent** → `s1b_ingesta_api.md`
+- **InventoryUsageEvent** → `s1b_ingesta_api.md`
+- **APIIngestResult** → `s1b_ingesta_api.md`
 - **MetricStatus** (dormant/active) → `s2_gatekeeper.md`
 - **CalcResult** → `s3_motor_calculo.md`
 - **ForensicReport** → `s4_auditoria_ia.md`
@@ -103,6 +110,7 @@
 | Spec          | Archivo de código                        |
 |---------------|------------------------------------------|
 | N01           | `api/main.py` + `agents/pos_parser.py` + `app/api/upload/route.ts`|
+| S1B           | `api/main.py` → `POST /ingest/api-event` (pendiente) |
 | N02           | `api/main.py` → `POST /ingest/factura` + `agents/factura_parser.py`|
 | N03           | `api/main.py` → `/transactions`, `/cash-counts`, `/onboarding` |
 | N05           | `api/main.py` → `POST /orchestrator/run`, `GET /orchestrator/status/{run_id}` |
@@ -123,9 +131,9 @@
 ## Schema de base de datos
 
 - **Arquitectura híbrida** → `db_schema.md`
-- Tablas: `businesses`, `business_fixed_costs`, `documents`, `transactions`, `pos_inputs`, `cash_counts`, `recipes`, `daily_context`, `metric_status`, `unit_conversions`, `audit_results`, `circuit_breaker_state`, `mepia_memory`
-- JSONB: `extracted_data`, `metadata`, `raw_metadata`, `tags`, `ingredients`, `missing_fields`
-- Campos clave nuevos: `expense_behavior` (FIXED/VARIABLE/CAPEX), `needs_human_review`, `ocr_confidence`, `raw_metadata`
+- Tablas: `businesses`, `business_fixed_costs`, `documents`, `transactions`, `pos_inputs`, `cash_counts`, `recipes`, `daily_context` _(deprecated)_, `metric_status`, `unit_conversions`, `audit_results`, `circuit_breaker_state`, `mepia_memory`, `delivery_platform_config`
+- JSONB: `extracted_data`, `metadata`, `raw_metadata`, `tags` _(deprecated)_, `ingredients`, `missing_fields`
+- Campos clave nuevos: `expense_behavior` (FIXED/VARIABLE/CAPEX), `needs_human_review`, `ocr_confidence`, `raw_metadata`, `multi_sucursal`
 
 ## Reglas de carga de contexto
 

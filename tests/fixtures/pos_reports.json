@@ -1,0 +1,939 @@
+[
+  {
+    "file_id": "3fd038f2-e964-4b9e-80c7-be9f20559f19",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-01-06/e1bbce7c-b341-417a-8b7e-8ec4be6bef5e.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-01-06T22:00:00Z",
+    "date": "2024-01-06",
+    "totals": {
+      "cash": 11744.92,
+      "card": 8145.08,
+      "total": 19890.0
+    },
+    "payment_methods": {
+      "cash": 11744.92,
+      "card": 8145.08,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Espresso Doble",
+        "quantity": 28,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Té Chai Latte",
+        "quantity": 27,
+        "unit_price": 55.0
+      },
+      {
+        "description": "Café Latte",
+        "quantity": 18,
+        "unit_price": 65.0
+      },
+      {
+        "description": "Molletes",
+        "quantity": 47,
+        "unit_price": 70.0
+      },
+      {
+        "description": "Agua Mineral",
+        "quantity": 22,
+        "unit_price": 25.0
+      },
+      {
+        "description": "Jugo Natural",
+        "quantity": 49,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Cappuccino",
+        "quantity": 48,
+        "unit_price": 60.0
+      },
+      {
+        "description": "Sandwich Club",
+        "quantity": 46,
+        "unit_price": 95.0
+      },
+      {
+        "description": "Croissant",
+        "quantity": 9,
+        "unit_price": 40.0
+      },
+      {
+        "description": "Café Americano",
+        "quantity": 43,
+        "unit_price": 45.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.96,
+      "payment_methods": 0.93,
+      "line_items": 0.89
+    },
+    "missing_fields": null,
+    "_anomaly": null
+  },
+  {
+    "file_id": "5b07c047-be4c-4ef9-b095-af839093bf02",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-04/03c67f0b-8e26-4436-a161-eac88dc96776.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-02-04T22:00:00Z",
+    "date": "2024-02-04",
+    "totals": {
+      "cash": 10250.4,
+      "card": 8814.6,
+      "total": 19065.0
+    },
+    "payment_methods": {
+      "cash": 10250.4,
+      "card": 8814.6,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Molletes",
+        "quantity": 9,
+        "unit_price": 70.0
+      },
+      {
+        "description": "Jugo Natural",
+        "quantity": 18,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Espresso Doble",
+        "quantity": 41,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Croissant",
+        "quantity": 50,
+        "unit_price": 40.0
+      },
+      {
+        "description": "Café Americano",
+        "quantity": 25,
+        "unit_price": 45.0
+      },
+      {
+        "description": "Café Latte",
+        "quantity": 18,
+        "unit_price": 65.0
+      },
+      {
+        "description": "Ensalada César",
+        "quantity": 46,
+        "unit_price": 85.0
+      },
+      {
+        "description": "Cappuccino",
+        "quantity": 36,
+        "unit_price": 60.0
+      },
+      {
+        "description": "Agua Mineral",
+        "quantity": 30,
+        "unit_price": 25.0
+      },
+      {
+        "description": "Sandwich Club",
+        "quantity": 46,
+        "unit_price": 95.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.95,
+      "payment_methods": 0.93,
+      "line_items": 0.9
+    },
+    "missing_fields": null,
+    "_anomaly": null
+  },
+  {
+    "file_id": "e3035e99-a3c6-4621-9458-4dd0abe9b428",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-03/2434a172-295f-4ca7-b3e7-df74445f21fc.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-02-03T22:00:00Z",
+    "date": "2024-02-03",
+    "totals": {
+      "cash": 10585.6,
+      "card": 7699.4,
+      "total": 18285.0
+    },
+    "payment_methods": {
+      "cash": 10585.6,
+      "card": 7699.4,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Agua Mineral",
+        "quantity": 53,
+        "unit_price": 25.0
+      },
+      {
+        "description": "Sandwich Club",
+        "quantity": 8,
+        "unit_price": 95.0
+      },
+      {
+        "description": "Molletes",
+        "quantity": 60,
+        "unit_price": 70.0
+      },
+      {
+        "description": "Pastel del Día",
+        "quantity": 12,
+        "unit_price": 75.0
+      },
+      {
+        "description": "Croissant",
+        "quantity": 14,
+        "unit_price": 40.0
+      },
+      {
+        "description": "Café Latte",
+        "quantity": 45,
+        "unit_price": 65.0
+      },
+      {
+        "description": "Jugo Natural",
+        "quantity": 15,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Té Chai Latte",
+        "quantity": 55,
+        "unit_price": 55.0
+      },
+      {
+        "description": "Espresso Doble",
+        "quantity": 48,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Café Americano",
+        "quantity": 32,
+        "unit_price": 45.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.95,
+      "payment_methods": 0.96,
+      "line_items": 0.89
+    },
+    "missing_fields": null,
+    "_anomaly": null
+  },
+  {
+    "file_id": "3dcae116-1575-4972-a60c-a1f8255a2711",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-02/29cf6867-68ef-4fa0-b3c7-7f6233f617e0.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-02-02T22:00:00Z",
+    "date": "2024-02-02",
+    "totals": {
+      "cash": 10761.44,
+      "card": 6358.56,
+      "total": 17120.0
+    },
+    "payment_methods": {
+      "cash": 10761.44,
+      "card": 6358.56,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Café Americano",
+        "quantity": 23,
+        "unit_price": 45.0
+      },
+      {
+        "description": "Pastel del Día",
+        "quantity": 32,
+        "unit_price": 75.0
+      },
+      {
+        "description": "Café Latte",
+        "quantity": 15,
+        "unit_price": 65.0
+      },
+      {
+        "description": "Jugo Natural",
+        "quantity": 34,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Té Chai Latte",
+        "quantity": 5,
+        "unit_price": 55.0
+      },
+      {
+        "description": "Sandwich Club",
+        "quantity": 51,
+        "unit_price": 95.0
+      },
+      {
+        "description": "Croissant",
+        "quantity": 51,
+        "unit_price": 40.0
+      },
+      {
+        "description": "Cappuccino",
+        "quantity": 21,
+        "unit_price": 60.0
+      },
+      {
+        "description": "Molletes",
+        "quantity": 37,
+        "unit_price": 70.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.96,
+      "payment_methods": 0.93,
+      "line_items": 0.91
+    },
+    "missing_fields": null,
+    "_anomaly": null
+  },
+  {
+    "file_id": "bc5c9dd2-2b04-468b-b5a9-70b49c7bc789",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-03-22/f707f4f9-1564-44c6-995d-323541161540.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-03-22T22:00:00Z",
+    "date": "2024-03-22",
+    "totals": {
+      "cash": 6630.55,
+      "card": 7409.45,
+      "total": 14040.0
+    },
+    "payment_methods": {
+      "cash": 6630.55,
+      "card": 7409.45,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Agua Mineral",
+        "quantity": 36,
+        "unit_price": 25.0
+      },
+      {
+        "description": "Espresso Doble",
+        "quantity": 6,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Cappuccino",
+        "quantity": 12,
+        "unit_price": 60.0
+      },
+      {
+        "description": "Croissant",
+        "quantity": 28,
+        "unit_price": 40.0
+      },
+      {
+        "description": "Molletes",
+        "quantity": 58,
+        "unit_price": 70.0
+      },
+      {
+        "description": "Té Chai Latte",
+        "quantity": 56,
+        "unit_price": 55.0
+      },
+      {
+        "description": "Sandwich Club",
+        "quantity": 24,
+        "unit_price": 95.0
+      },
+      {
+        "description": "Café Americano",
+        "quantity": 20,
+        "unit_price": 45.0
+      },
+      {
+        "description": "Ensalada César",
+        "quantity": 8,
+        "unit_price": 85.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.96,
+      "payment_methods": 0.92,
+      "line_items": 0.92
+    },
+    "missing_fields": null,
+    "_anomaly": null
+  },
+  {
+    "file_id": "6d498ec5-68b7-42e9-9171-95203f07556a",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-01-09/3c994f11-b9ba-42fd-b1a1-205f79d5bfc1.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-01-09T22:00:00Z",
+    "date": "2024-01-09",
+    "totals": {
+      "cash": 14093.14,
+      "card": 6081.86,
+      "total": 20175.0
+    },
+    "payment_methods": {
+      "cash": 14093.14,
+      "card": 6081.86,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Cappuccino",
+        "quantity": 18,
+        "unit_price": 60.0
+      },
+      {
+        "description": "Molletes",
+        "quantity": 39,
+        "unit_price": 70.0
+      },
+      {
+        "description": "Ensalada César",
+        "quantity": 53,
+        "unit_price": 85.0
+      },
+      {
+        "description": "Jugo Natural",
+        "quantity": 51,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Pastel del Día",
+        "quantity": 49,
+        "unit_price": 75.0
+      },
+      {
+        "description": "Agua Mineral",
+        "quantity": 17,
+        "unit_price": 25.0
+      },
+      {
+        "description": "Té Chai Latte",
+        "quantity": 50,
+        "unit_price": 55.0
+      },
+      {
+        "description": "Croissant",
+        "quantity": 24,
+        "unit_price": 40.0
+      },
+      {
+        "description": "Espresso Doble",
+        "quantity": 30,
+        "unit_price": 50.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.97,
+      "payment_methods": 0.95,
+      "line_items": 0.89
+    },
+    "missing_fields": null,
+    "_anomaly": null
+  },
+  {
+    "file_id": "3a442b08-6d1b-45ea-b9e4-b1aeaef501c6",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-01-16/1b84a0a3-923b-4b1e-9f89-4c9ae7645079.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-01-16T22:00:00Z",
+    "date": "2024-01-16",
+    "totals": {
+      "cash": 3503.4,
+      "card": 3971.6,
+      "total": 7475.0
+    },
+    "payment_methods": {
+      "cash": 3503.4,
+      "card": 3971.6,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Espresso Doble",
+        "quantity": 19,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Café Latte",
+        "quantity": 5,
+        "unit_price": 65.0
+      },
+      {
+        "description": "Croissant",
+        "quantity": 9,
+        "unit_price": 40.0
+      },
+      {
+        "description": "Café Americano",
+        "quantity": 50,
+        "unit_price": 45.0
+      },
+      {
+        "description": "Molletes",
+        "quantity": 45,
+        "unit_price": 70.0
+      },
+      {
+        "description": "Té Chai Latte",
+        "quantity": 8,
+        "unit_price": 55.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.98,
+      "payment_methods": 0.97,
+      "line_items": 0.84
+    },
+    "missing_fields": null,
+    "_anomaly": null
+  },
+  {
+    "file_id": "c1742fe5-d026-494d-a414-9ad3594afefa",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-01-31/3b97f8c6-203e-4a2e-af09-a80caf6858a0.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-01-31T22:00:00Z",
+    "date": "2024-01-31",
+    "totals": {
+      "cash": 7243.11,
+      "card": 8601.89,
+      "total": 15845.0
+    },
+    "payment_methods": {
+      "cash": 7243.11,
+      "card": 8601.89,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Pastel del Día",
+        "quantity": 41,
+        "unit_price": 75.0
+      },
+      {
+        "description": "Ensalada César",
+        "quantity": 35,
+        "unit_price": 85.0
+      },
+      {
+        "description": "Espresso Doble",
+        "quantity": 20,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Jugo Natural",
+        "quantity": 55,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Cappuccino",
+        "quantity": 35,
+        "unit_price": 60.0
+      },
+      {
+        "description": "Croissant",
+        "quantity": 56,
+        "unit_price": 40.0
+      },
+      {
+        "description": "Té Chai Latte",
+        "quantity": 31,
+        "unit_price": 55.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.94,
+      "payment_methods": 0.95,
+      "line_items": 0.88
+    },
+    "missing_fields": null,
+    "_anomaly": null
+  },
+  {
+    "file_id": "b1eafd23-a2d2-4831-9d99-202fc36a738d",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-29/89de9e72-d77f-49e0-b606-1807cc14c08a.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-02-29T22:00:00Z",
+    "date": "2024-02-29",
+    "totals": {
+      "cash": 9608.5,
+      "card": 7861.5,
+      "total": 17470.0
+    },
+    "payment_methods": {
+      "cash": 9608.5,
+      "card": 7861.5,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Café Americano",
+        "quantity": 17,
+        "unit_price": 45.0
+      },
+      {
+        "description": "Pastel del Día",
+        "quantity": 39,
+        "unit_price": 75.0
+      },
+      {
+        "description": "Café Latte",
+        "quantity": 33,
+        "unit_price": 65.0
+      },
+      {
+        "description": "Molletes",
+        "quantity": 13,
+        "unit_price": 70.0
+      },
+      {
+        "description": "Sandwich Club",
+        "quantity": 32,
+        "unit_price": 95.0
+      },
+      {
+        "description": "Croissant",
+        "quantity": 16,
+        "unit_price": 40.0
+      },
+      {
+        "description": "Cappuccino",
+        "quantity": 22,
+        "unit_price": 60.0
+      },
+      {
+        "description": "Jugo Natural",
+        "quantity": 34,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Agua Mineral",
+        "quantity": 20,
+        "unit_price": 25.0
+      },
+      {
+        "description": "Té Chai Latte",
+        "quantity": 60,
+        "unit_price": 55.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.96,
+      "payment_methods": 0.97,
+      "line_items": 0.9
+    },
+    "missing_fields": null,
+    "_anomaly": {
+      "type": "source_discrepancy",
+      "description": "Total reportado (17470.0) no coincide con suma de line_items (17245.0)",
+      "severity": "high",
+      "quantified_impact": "-225.0 MXN",
+      "line_items_sum": 17245.0,
+      "reported_total": 17470.0
+    }
+  },
+  {
+    "file_id": "e3d3f244-74b0-47fc-b280-e13a40b0e4b5",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-03-24/94d9aeba-e2f1-4eab-b5d3-e5a7f2e21061.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-03-24T22:00:00Z",
+    "date": "2024-03-24",
+    "totals": {
+      "cash": 9335.7,
+      "card": 7638.3,
+      "total": 16974.0
+    },
+    "payment_methods": {
+      "cash": 9335.7,
+      "card": 7638.3,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Café Americano",
+        "quantity": 8,
+        "unit_price": 45.0
+      },
+      {
+        "description": "Café Latte",
+        "quantity": 15,
+        "unit_price": 65.0
+      },
+      {
+        "description": "Espresso Doble",
+        "quantity": 29,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Cappuccino",
+        "quantity": 5,
+        "unit_price": 60.0
+      },
+      {
+        "description": "Sandwich Club",
+        "quantity": 29,
+        "unit_price": 95.0
+      },
+      {
+        "description": "Agua Mineral",
+        "quantity": 21,
+        "unit_price": 25.0
+      },
+      {
+        "description": "Ensalada César",
+        "quantity": 55,
+        "unit_price": 85.0
+      },
+      {
+        "description": "Pastel del Día",
+        "quantity": 55,
+        "unit_price": 75.0
+      },
+      {
+        "description": "Croissant",
+        "quantity": 34,
+        "unit_price": 40.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.97,
+      "payment_methods": 0.96,
+      "line_items": 0.92
+    },
+    "missing_fields": null,
+    "_anomaly": {
+      "type": "source_discrepancy",
+      "description": "Total reportado (16974.0) no coincide con suma de line_items (16525.0)",
+      "severity": "high",
+      "quantified_impact": "-449.0 MXN",
+      "line_items_sum": 16525.0,
+      "reported_total": 16974.0
+    }
+  },
+  {
+    "file_id": "f41ca41b-d486-467f-b0f5-67e327b2116a",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-01-20/dbb86030-de6b-4552-a3de-6bd33dcd6c50.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-01-20T22:00:00Z",
+    "date": "2024-01-20",
+    "totals": {
+      "cash": 255.0,
+      "card": 170.0,
+      "total": 425.0
+    },
+    "payment_methods": {
+      "cash": 255.0,
+      "card": 170.0,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Espresso Doble",
+        "quantity": 1,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Té Chai Latte",
+        "quantity": 3,
+        "unit_price": 55.0
+      },
+      {
+        "description": "Molletes",
+        "quantity": 3,
+        "unit_price": 70.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.95,
+      "payment_methods": 0.94,
+      "line_items": 0.88
+    },
+    "missing_fields": null,
+    "_anomaly": {
+      "type": "margin_leak",
+      "description": "Ventas del día extremadamente bajas: 425.0 MXN",
+      "severity": "high",
+      "quantified_impact": "Venta total 425.0 MXN — posible fuga de margen"
+    }
+  },
+  {
+    "file_id": "017fc6f6-918e-484d-8338-c4e1c23c0f0b",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-03-10/6e3d7e02-a2ae-41f1-81bf-546c2bc59f3f.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-03-10T22:00:00Z",
+    "date": "2024-03-10",
+    "totals": {
+      "cash": 5565.0,
+      "card": 5565.0,
+      "total": 11130.0
+    },
+    "payment_methods": {
+      "cash": 5565.0,
+      "card": 5565.0,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Molletes",
+        "quantity": 42,
+        "unit_price": 70.0
+      },
+      {
+        "description": "Croissant",
+        "quantity": 42,
+        "unit_price": 40.0
+      },
+      {
+        "description": "Café Americano",
+        "quantity": 42,
+        "unit_price": 45.0
+      },
+      {
+        "description": "Agua Mineral",
+        "quantity": 42,
+        "unit_price": 25.0
+      },
+      {
+        "description": "Ensalada César",
+        "quantity": 42,
+        "unit_price": 85.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.93,
+      "payment_methods": 0.93,
+      "line_items": 0.9
+    },
+    "missing_fields": null,
+    "_anomaly": {
+      "type": "operational_ceiling",
+      "description": "Todas las líneas con qty=42 — posible techo de producción",
+      "severity": "medium",
+      "quantified_impact": "techo: 42 unidades/producto/día"
+    }
+  },
+  {
+    "file_id": "410f463a-c245-46d0-804a-7c03ed1a90bd",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-03-27/de986928-40fd-4945-a077-896d8a36dd67.pdf",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "uploaded_at": "2024-03-27T22:00:00Z",
+    "date": "2024-03-27",
+    "totals": {
+      "cash": 7035.0,
+      "card": 7035.0,
+      "total": 14070.0
+    },
+    "payment_methods": {
+      "cash": 7035.0,
+      "card": 7035.0,
+      "other": 0.0
+    },
+    "line_items": [
+      {
+        "description": "Sandwich Club",
+        "quantity": 42,
+        "unit_price": 95.0
+      },
+      {
+        "description": "Café Latte",
+        "quantity": 42,
+        "unit_price": 65.0
+      },
+      {
+        "description": "Agua Mineral",
+        "quantity": 42,
+        "unit_price": 25.0
+      },
+      {
+        "description": "Espresso Doble",
+        "quantity": 42,
+        "unit_price": 50.0
+      },
+      {
+        "description": "Café Americano",
+        "quantity": 42,
+        "unit_price": 45.0
+      },
+      {
+        "description": "Té Chai Latte",
+        "quantity": 42,
+        "unit_price": 55.0
+      }
+    ],
+    "ocr_confidence": {
+      "totals": 0.95,
+      "payment_methods": 0.96,
+      "line_items": 0.87
+    },
+    "missing_fields": null,
+    "_anomaly": {
+      "type": "operational_ceiling",
+      "description": "Todas las líneas con qty=42 — posible techo de producción",
+      "severity": "medium",
+      "quantified_impact": "techo: 42 unidades/producto/día"
+    }
+  },
+  {
+    "file_id": "6792e607-cbdc-49d1-b2de-78aeef25d2dc",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-03/b54927cd-d798-4991-8504-31f7275f3251.pdf",
+    "extraction_status": "needs_human_review",
+    "needs_human_review": true,
+    "uploaded_at": "2024-02-03T22:00:00Z",
+    "date": null,
+    "totals": null,
+    "payment_methods": null,
+    "line_items": null,
+    "ocr_confidence": {
+      "totals": 0.71,
+      "payment_methods": 0.75,
+      "line_items": null
+    },
+    "missing_fields": [
+      "totals",
+      "payment_methods"
+    ],
+    "_anomaly": null
+  },
+  {
+    "file_id": "2e35a0fd-aa79-4694-8824-e74f06e848d1",
+    "storage_path": "pos-tickets/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-08/68bbdf8e-59ac-40e9-ab01-f947d33797da.pdf",
+    "extraction_status": "needs_human_review",
+    "needs_human_review": true,
+    "uploaded_at": "2024-02-08T22:00:00Z",
+    "date": null,
+    "totals": null,
+    "payment_methods": null,
+    "line_items": null,
+    "ocr_confidence": {
+      "totals": 0.73,
+      "payment_methods": 0.83,
+      "line_items": null
+    },
+    "missing_fields": [
+      "totals",
+      "payment_methods"
+    ],
+    "_anomaly": null
+  }
+]

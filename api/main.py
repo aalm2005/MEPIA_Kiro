@@ -53,7 +53,33 @@ from agents.factura_parser import (
 )
 from core.config import settings
 
+# ---------------------------------------------------------------------------
+# Exportar variables de settings a os.environ para agentes que usan os.environ
+# directamente (N05, S4, N13, etc.)
+# ---------------------------------------------------------------------------
+for _key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
+    _val = getattr(settings, _key, None)
+    if _val and _key not in os.environ:
+        os.environ[_key] = _val
+
 app = FastAPI(title="MEPIA Agents API")
+
+# ---------------------------------------------------------------------------
+# Global exception handler — muestra tracebacks en logs de desarrollo
+# ---------------------------------------------------------------------------
+import logging
+import traceback as _tb
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
+
+logging.basicConfig(level=logging.DEBUG if settings.ENVIRONMENT == "dev" else logging.INFO)
+_logger = logging.getLogger("mepia")
+
+
+@app.exception_handler(Exception)
+async def _global_exception_handler(request: Request, exc: Exception):
+    _logger.error("Unhandled exception on %s %s:\n%s", request.method, request.url.path, _tb.format_exc())
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 # ---------------------------------------------------------------------------
 # Singleton de MemoryService — inicializado en startup
@@ -843,33 +869,10 @@ async def ingest_factura(
         file_bytes,
     )
 
-    # 7. Insertar en transactions si no requiere revisión
-    transaction_id: Optional[str] = None
-    if not extract_result.needs_human_review and extract_result.extracted_fields:
-        ef = extract_result.extracted_fields
-        transaction_id = str(uuid4())
-        db.table("transactions").insert(
-            {
-                "id": transaction_id,
-                "business_id": business_id,
-                "document_id": file_id,
-                "type": "egreso",
-                "category": "proveedor",
-                "amount": float(ef.amount),
-                "tax_amount": float(ef.tax_amount),
-                "transaction_date": ef.transaction_date.isoformat(),
-                "supplier_name": ef.supplier_name,
-                "concept": ef.concept,
-                "document_reference": ef.document_reference,
-                "expense_behavior": None,
-                "raw_metadata": extract_result.raw_metadata,
-            }
-        ).execute()
-
-    # 8. Insertar en documents
+    # 7. Insertar en documents PRIMERO (transactions tiene FK a documents)
     extracted_data_json = {
         "sha256": sha,
-        "transaction_id": transaction_id,
+        "transaction_id": None,  # se actualiza después si se crea transaction
         "extracted_fields": (
             extract_result.extracted_fields.model_dump(mode="json")
             if extract_result.extracted_fields
@@ -892,6 +895,35 @@ async def ingest_factura(
             "extracted_data": extracted_data_json,
         }
     ).execute()
+
+    # 8. Insertar en transactions si no requiere revisión
+    transaction_id: Optional[str] = None
+    if not extract_result.needs_human_review and extract_result.extracted_fields:
+        ef = extract_result.extracted_fields
+        transaction_id = str(uuid4())
+        db.table("transactions").insert(
+            {
+                "id": transaction_id,
+                "business_id": business_id,
+                "document_id": file_id,
+                "type": "egreso",
+                "category": "proveedor",
+                "amount": float(ef.amount),
+                "tax_amount": float(ef.tax_amount),
+                "transaction_date": ef.transaction_date.isoformat(),
+                "supplier_name": ef.supplier_name,
+                "concept": ef.concept,
+                "document_reference": ef.document_reference,
+                "expense_behavior": None,
+                "raw_metadata": extract_result.raw_metadata,
+            }
+        ).execute()
+
+        # Actualizar extracted_data con el transaction_id
+        extracted_data_json["transaction_id"] = transaction_id
+        db.table("documents").update(
+            {"extracted_data": extracted_data_json}
+        ).eq("id", file_id).execute()
 
     return FacturaIngestResult(
         file_id=file_id,
@@ -1787,6 +1819,74 @@ async def orchestrator_status(run_id: str):
         "date": row.get("date"),
         "pipeline_status": result_data.get("pipeline_status", "completed"),
         "current_node": "N05_synthesis",
+        "completed_at": row.get("created_at"),
+    }
+
+
+@app.get("/orchestrator/result/{run_id}")
+async def orchestrator_result(run_id: str):
+    """
+    GET /orchestrator/result/{run_id}
+    Retorna el OrchestratorResult completo persistido por N05.
+    Usado por el dashboard para renderizar resultados.
+    """
+    db = get_supabase()
+
+    # Buscar por run_id en audit_results (N05 guarda el resultado completo)
+    result = (
+        db.table("audit_results")
+        .select("*")
+        .eq("id", run_id)
+        .eq("node_id", "N05")
+        .execute()
+    )
+
+    if not result.data:
+        # Intentar buscar por run_id en la columna run_id
+        result = (
+            db.table("audit_results")
+            .select("*")
+            .eq("run_id", run_id)
+            .eq("node_id", "N05")
+            .execute()
+        )
+
+    if not result.data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Resultado para run '{run_id}' no encontrado.",
+        )
+
+    row = result.data[0]
+    result_data = row.get("result_data") or {}
+
+    # Reconstruir OrchestratorResult desde result_data
+    return {
+        "run_id": run_id,
+        "business_id": row.get("business_id"),
+        "date": row.get("date"),
+        "archetype": result_data.get("archetype", row.get("archetype", "Operative Genius")),
+        "pipeline_status": result_data.get("pipeline_status", "completed"),
+        "sequential_results": result_data.get("sequential_results", {
+            "active_metrics": [],
+            "calc_results": [],
+            "forensic_report": result_data.get("forensic_report", {
+                "business_id": row.get("business_id"),
+                "date": row.get("date"),
+                "risk_level": "low",
+                "anomalies": [],
+                "evidence_sources": [],
+                "observed_causality": None,
+                "generated_at": row.get("created_at"),
+            }),
+            "audit_insights": result_data.get("audit_insights", []),
+        }),
+        "escalation": result_data.get("escalation", {
+            "triggered": False,
+            "reason": None,
+            "layer2_run_id": None,
+        }),
+        "dormant_metrics": result_data.get("dormant_metrics", []),
         "completed_at": row.get("created_at"),
     }
 

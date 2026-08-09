@@ -1,0 +1,145 @@
+[
+  {
+    "id": "babb7859-1bb3-4827-928b-aacbaaa91271",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-01-06",
+    "initial_float": 1500.0,
+    "actual_counted": 13158.85,
+    "cash_payouts": 37.0,
+    "recorded_by": "9338bc2d-044d-4330-be2b-847078a57827",
+    "expected_cash": 13207.92,
+    "variance": -49.07
+  },
+  {
+    "id": "e26a63ca-71e0-4568-9eee-d88121a1bd11",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-02-04",
+    "initial_float": 1500.0,
+    "actual_counted": 11512.01,
+    "cash_payouts": 288.0,
+    "recorded_by": "a63a2689-7189-4d84-a3b5-cd44203199d3",
+    "expected_cash": 11462.4,
+    "variance": 49.61
+  },
+  {
+    "id": "2f23497a-ae98-4226-9590-689d60c991f7",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-02-03",
+    "initial_float": 1500.0,
+    "actual_counted": 12052.36,
+    "cash_payouts": 37.0,
+    "recorded_by": "dd3e9b0a-6c19-4fbf-815c-1b97b1584fb9",
+    "expected_cash": 12048.6,
+    "variance": 3.76
+  },
+  {
+    "id": "f7f1e125-9ac5-4894-affb-cc715335c2d7",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-02-02",
+    "initial_float": 1500.0,
+    "actual_counted": 11978.96,
+    "cash_payouts": 259.0,
+    "recorded_by": "1d2a299b-636d-4a73-aad2-06934ca2d777",
+    "expected_cash": 12002.44,
+    "variance": -23.48
+  },
+  {
+    "id": "52df3db3-313e-48bb-8901-73cfbd63d30c",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-03-22",
+    "initial_float": 1500.0,
+    "actual_counted": 7990.64,
+    "cash_payouts": 178.0,
+    "recorded_by": "c3357686-864b-4488-a896-9c225dde7946",
+    "expected_cash": 7952.55,
+    "variance": 38.09
+  },
+  {
+    "id": "0bd43161-c172-40bd-a856-95eb6839b35f",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-01-09",
+    "initial_float": 1500.0,
+    "actual_counted": 15455.09,
+    "cash_payouts": 125.0,
+    "recorded_by": "8eb9fd8b-69f2-4f98-b411-8ff57b89109c",
+    "expected_cash": 15468.14,
+    "variance": -13.05
+  },
+  {
+    "id": "5d76c204-4122-498f-afc5-b9623fe7c456",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-01-16",
+    "initial_float": 1500.0,
+    "actual_counted": 4917.22,
+    "cash_payouts": 80.0,
+    "recorded_by": "760236e7-0098-4d79-a5e2-9fb79eaa6648",
+    "expected_cash": 4923.4,
+    "variance": -6.18
+  },
+  {
+    "id": "fd2c7f00-2d34-4449-93ab-7b8810f8d6ca",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-01-31",
+    "initial_float": 1500.0,
+    "actual_counted": 8485.46,
+    "cash_payouts": 278.0,
+    "recorded_by": "176f540a-7778-4f5e-9593-edfc8f0b5bc5",
+    "expected_cash": 8465.11,
+    "variance": 20.35
+  },
+  {
+    "id": "4839d14a-dc89-4abb-9bf4-cc39571a9d9f",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-02-29",
+    "initial_float": 1500.0,
+    "actual_counted": 10342.5,
+    "cash_payouts": 270.0,
+    "recorded_by": "b5b7a7e8-ca81-4ea9-b7a1-84865e2334ed",
+    "expected_cash": 10838.5,
+    "variance": -496.0
+  },
+  {
+    "id": "f1984dd7-66ac-4154-b121-89f480343f37",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-03-24",
+    "initial_float": 1500.0,
+    "actual_counted": 10205.7,
+    "cash_payouts": 283.0,
+    "recorded_by": "88bbac5d-c8ce-489c-9ae3-7b8092459cc3",
+    "expected_cash": 10552.7,
+    "variance": -347.0
+  },
+  {
+    "id": "7de568b0-1d82-42ee-b31f-89a51d394ad8",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-01-20",
+    "initial_float": 1500.0,
+    "actual_counted": 1745.89,
+    "cash_payouts": 53.0,
+    "recorded_by": "7afea835-03ec-4959-ac52-8759a2c755a5",
+    "expected_cash": 1702.0,
+    "variance": 43.89
+  },
+  {
+    "id": "55365105-d9b1-4427-9e9b-c5b217cac0e4",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-03-10",
+    "initial_float": 1500.0,
+    "actual_counted": 6973.45,
+    "cash_payouts": 68.0,
+    "recorded_by": "75797829-8d25-4667-bc2f-104dfb920afa",
+    "expected_cash": 6997.0,
+    "variance": -23.55
+  },
+  {
+    "id": "4ffff68c-b09c-4bc3-97f5-c3f1dd752cea",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-03-27",
+    "initial_float": 1500.0,
+    "actual_counted": 8505.24,
+    "cash_payouts": 54.0,
+    "recorded_by": "444dad4f-d32d-47d3-8b6d-5f65f1f24cb7",
+    "expected_cash": 8481.0,
+    "variance": 24.24
+  }
+]

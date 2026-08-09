@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    Version="4.0"
+    Fecha="2024-03-22T12:00:00"
+    Folio="FAC-2024-00001"
+    SubTotal="300.29"
+    Total="348.34"
+    Moneda="MXN"
+    TipoDeComprobante="I">
+  <cfdi:Emisor
+      Nombre="Lácteos del Valle SA"
+      Rfc="LVA190515BBB"
+      RegimenFiscal="601"/>
+  <cfdi:Receptor
+      Nombre="MEPIA Test Business"
+      Rfc="XEXX010101000"
+      UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto
+        Descripcion="Leche entera 24 piezas"
+        Cantidad="1"
+        ValorUnitario="300.29"
+        Importe="300.29"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="48.05">
+    <cfdi:Traslados>
+      <cfdi:Traslado
+          Impuesto="002"
+          TipoFactor="Tasa"
+          TasaOCuota="0.160000"
+          Importe="48.05"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+</cfdi:Comprobante>

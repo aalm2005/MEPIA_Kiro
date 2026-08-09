@@ -5,9 +5,9 @@ Spec: .kiro/specs/mepia/n01_pos_pdf_input.md
 """
 import hashlib
 import re
-from datetime import date
+from datetime import date as date_type
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from typing import Optional, Union
 
 import pdfplumber
 from pydantic import BaseModel
@@ -43,7 +43,7 @@ class OCRConfidence(BaseModel):
 
 class POSExtractResult(BaseModel):
     sha256: str
-    date: Optional[date] = None
+    date: Union[date_type, None] = None
     totals: Optional[POSTotals] = None
     payment_methods: Optional[POSPaymentMethods] = None
     line_items: Optional[list[LineItem]] = None
@@ -106,9 +106,9 @@ def _parse_decimal(raw: str) -> Optional[Decimal]:
         return None
 
 
-def _extract_dates_from_text(text: str) -> list[date]:
+def _extract_dates_from_text(text: str) -> list[date_type]:
     """Extrae todas las fechas únicas del texto usando los patrones definidos."""
-    found: list[date] = []
+    found: list[date_type] = []
     for pattern in _DATE_PATTERNS:
         for match in pattern.finditer(text):
             groups = match.groups()
@@ -116,10 +116,10 @@ def _extract_dates_from_text(text: str) -> list[date]:
                 # Determinar orden según el patrón
                 if len(groups[0]) == 4:
                     # YYYY-MM-DD
-                    d = date(int(groups[0]), int(groups[1]), int(groups[2]))
+                    d = date_type(int(groups[0]), int(groups[1]), int(groups[2]))
                 elif len(groups[2]) == 4:
                     # DD/MM/YYYY o DD-MM-YYYY
-                    d = date(int(groups[2]), int(groups[1]), int(groups[0]))
+                    d = date_type(int(groups[2]), int(groups[1]), int(groups[0]))
                 else:
                     continue
                 if d not in found:
@@ -273,7 +273,7 @@ def _make_empty_result(sha: str) -> POSExtractResult:
 
 def _build_result(
     sha: str,
-    detected_date: Optional[date],
+    detected_date: Optional[date_type],
     totals: Optional[POSTotals],
     line_items_raw: list[LineItem],
 ) -> POSExtractResult:

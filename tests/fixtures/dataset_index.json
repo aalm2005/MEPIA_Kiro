@@ -1,0 +1,40 @@
+{
+  "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+  "seed": 42,
+  "generated_at": "2026-05-02T23:34:16.832377",
+  "period": {
+    "start": "2024-01-01",
+    "end": "2024-03-31"
+  },
+  "files": {
+    "facturas": "facturas.json",
+    "pos_reports": "pos_reports.json",
+    "cash_counts": "cash_counts.json",
+    "daily_contexts": "daily_contexts.json",
+    "xmls": [
+      "cfdi_01_FAC_2024_00001.xml",
+      "cfdi_02_FAC_2024_00002.xml",
+      "cfdi_03_FAC_2024_00003.xml",
+      "cfdi_04_FAC_2024_00004.xml",
+      "cfdi_05_FAC_2024_00005.xml"
+    ],
+    "pdfs": [
+      "factura_01_FAC_2024_00001.pdf",
+      "factura_02_FAC_2024_00002.pdf",
+      "factura_03_FAC_2024_00003.pdf",
+      "factura_04_FAC_2024_00004.pdf",
+      "factura_05_FAC_2024_00005.pdf"
+    ]
+  },
+  "anomaly_summary": {
+    "facturas": {
+      "source_discrepancy": 1,
+      "cost_spike": 2
+    },
+    "pos": {
+      "source_discrepancy": 2,
+      "margin_leak": 1,
+      "operational_ceiling": 2
+    }
+  }
+}

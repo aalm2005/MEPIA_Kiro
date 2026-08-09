@@ -8,8 +8,10 @@ interface DocumentDropzoneProps {
   label: string;
   accept: string[]; // MIME types, e.g. ["application/pdf", "text/xml"]
   status: DropzoneStatus;
-  onFile: (file: File) => void;
+  onFiles: (files: File[]) => void;
   errorMessage?: string;
+  /** Progress text shown during upload, e.g. "3 / 5 archivos" */
+  progressText?: string;
 }
 
 function Spinner() {
@@ -21,19 +23,8 @@ function Spinner() {
       viewBox="0 0 24 24"
       aria-hidden="true"
     >
-      <circle
-        className="opacity-25"
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="4"
-      />
-      <path
-        className="opacity-75"
-        fill="currentColor"
-        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-      />
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
     </svg>
   );
 }
@@ -78,24 +69,41 @@ export default function DocumentDropzone({
   label,
   accept,
   status,
-  onFile,
+  onFiles,
   errorMessage,
+  progressText,
 }: DocumentDropzoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [mimeError, setMimeError] = useState<string | null>(null);
+  const [fileCount, setFileCount] = useState(0);
 
   const isInteractive = status === "idle" || status === "error";
 
-  function validateAndDispatch(file: File) {
+  function validateAndDispatch(fileList: FileList | File[]) {
     setMimeError(null);
-    if (!accept.includes(file.type)) {
+    const files = Array.from(fileList);
+    const valid: File[] = [];
+    for (const file of files) {
+      // Allow files whose MIME matches OR whose extension matches common types
+      const ext = file.name.toLowerCase();
+      const mimeOk = accept.includes(file.type);
+      const extOk =
+        (accept.includes("application/pdf") && ext.endsWith(".pdf")) ||
+        (accept.includes("text/xml") && (ext.endsWith(".xml"))) ||
+        (accept.includes("application/xml") && (ext.endsWith(".xml")));
+      if (mimeOk || extOk) {
+        valid.push(file);
+      }
+    }
+    if (valid.length === 0) {
       setMimeError(
-        `Tipo de archivo no permitido: ${file.type || "desconocido"}. Se acepta: ${accept.join(", ")}`
+        `Ningún archivo tiene tipo permitido. Se acepta: ${accept.join(", ")}`
       );
       return;
     }
-    onFile(file);
+    setFileCount(valid.length);
+    onFiles(valid);
   }
 
   function handleClick() {
@@ -112,9 +120,8 @@ export default function DocumentDropzone({
   }
 
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) validateAndDispatch(file);
-    // Reset input so the same file can be re-selected after an error
+    const files = e.target.files;
+    if (files && files.length > 0) validateAndDispatch(files);
     e.target.value = "";
   }
 
@@ -133,11 +140,10 @@ export default function DocumentDropzone({
     e.preventDefault();
     setIsDragOver(false);
     if (!isInteractive) return;
-    const file = e.dataTransfer.files?.[0];
-    if (file) validateAndDispatch(file);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) validateAndDispatch(files);
   }
 
-  // Border + background classes per status
   const borderClass =
     status === "done"
       ? "border-emerald-500"
@@ -150,7 +156,6 @@ export default function DocumentDropzone({
       : "border-dashed border-zinc-700";
 
   const cursorClass = isInteractive ? "cursor-pointer" : "cursor-default";
-
   const displayError = mimeError ?? (status === "error" ? errorMessage : null);
 
   return (
@@ -165,23 +170,21 @@ export default function DocumentDropzone({
       onDrop={handleDrop}
       className={`border-2 rounded p-6 text-center transition-colors ${borderClass} ${cursorClass} select-none`}
     >
-      {/* Hidden file input */}
       <input
         ref={inputRef}
         type="file"
         hidden
+        multiple
         accept={accept.join(",")}
         onChange={handleInputChange}
         aria-hidden="true"
         tabIndex={-1}
       />
 
-      {/* Label */}
       <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-zinc-500">
         {label}
       </p>
 
-      {/* Status content */}
       {status === "idle" && (
         <div className="space-y-2">
           <svg
@@ -200,10 +203,10 @@ export default function DocumentDropzone({
             />
           </svg>
           <p className="text-sm text-zinc-400">
-            Arrastra tu archivo o haz clic para seleccionar
+            Arrastra tus archivos o haz clic para seleccionar
           </p>
           <p className="text-xs text-zinc-600">
-            {accept.join(", ")}
+            {accept.join(", ")} — múltiples archivos permitidos
           </p>
         </div>
       )}
@@ -211,14 +214,18 @@ export default function DocumentDropzone({
       {status === "uploading" && (
         <div className="space-y-2">
           <Spinner />
-          <p className="text-sm text-zinc-400">Procesando...</p>
+          <p className="text-sm text-zinc-400">
+            {progressText ?? "Procesando..."}
+          </p>
         </div>
       )}
 
       {status === "done" && (
         <div className="space-y-2">
           <CheckIcon />
-          <p className="text-sm text-emerald-400">Archivo cargado ✓</p>
+          <p className="text-sm text-emerald-400">
+            {fileCount > 1 ? `${fileCount} archivos cargados ✓` : "Archivo cargado ✓"}
+          </p>
         </div>
       )}
 
@@ -238,7 +245,6 @@ export default function DocumentDropzone({
         </div>
       )}
 
-      {/* MIME validation error shown on top of idle state */}
       {status === "idle" && mimeError && (
         <p className="mt-2 text-xs text-red-400">{mimeError}</p>
       )}
