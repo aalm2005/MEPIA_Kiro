@@ -3,7 +3,7 @@
 
 **Documentos relacionados** (este archivo es el punto de entrada, no repite su contenido completo):
 - `mepia_ground_truth_8_escenarios.md` — los 8 casos de ground truth formulados en detalle
-- `kiro_prompt_ingesta_api_metricas.md` — prompt listo para pegar en Kiro (25 funciones nuevas de S3)
+- `kiro_prompt_ingesta_api_metricas.md` — prompt listo para pegar en Kiro (24 funciones nuevas de S3)
 
 ---
 
@@ -15,9 +15,9 @@
 | 2 | Fuente de datos primaria = API JSON a nivel línea (5 capas). PDF/OCR queda documentado como fallback, sin más inversión de tiempo | ✅ Cerrado |
 | 3 | Catálogo de 31 métricas candidatas, clasificadas por tipo y aporte al LLM | ✅ Cerrado |
 | 4 | Config de negocio: dos tipos — Tipo A (dato de catálogo, sin default posible) y Tipo B (umbral de materialidad, con default de arranque) | ✅ Cerrado |
-| 5 | Prompt de Kiro corregido: de 16 a 25 funciones nuevas de S3 (se habían quedado 9 fuera sin razón declarada, incluyendo cancelaciones/reimpresiones por responsable, que resultó ser un requisito real, no opcional) | ✅ Cerrado |
+| 5 | Prompt de Kiro corregido: de 16 a 24 funciones nuevas de S3 (se habían quedado 9 fuera sin razón declarada, incluyendo cancelaciones/reimpresiones por responsable, que resultó ser un requisito real, no opcional; "por responsable" terminó como dimensión estándar dentro de la misma función, no como funciones aparte — de ahí que el número final sea 24 y no 25) | ✅ Cerrado |
 | 6 | Ground truth: unidad = **día completo**, método = mayoría sintético dirigido + un caso de revisión ciega. A futuro, el diario real de producción (`mepia_memory`/`audit_runs`) alimenta casos reales sin rediseño adicional | ✅ Cerrado |
-| 7 | 8 escenarios de ground truth formulados **y con JSON real construido** (`tests/eval_set/caso_01...08`) | ✅ Cerrado (ver archivos aparte) |
+| 7 | 8 escenarios de ground truth formulados **y con JSON real construido** (`tests/eval_test/`, nombres reales `mepia_ground_truth_caso_01...08_*.json`) | ✅ Cerrado (ver archivos aparte) |
 | 8 | Paradigma de interfaz de salida: **híbrido** — pestañas tipo dashboard (Configuración, Métricas, Gráficas, otras) + pestaña "Chat IA" con semáforo + narrativa libre | ✅ Cerrado |
 | 9 | Confirmado: 3 niveles de verdad para el ground truth, ninguno requiere rediseño adicional dado lo ya construido | ✅ Cerrado |
 | 10 | Umbrales nuevos confirmados esta sesión: comisión delivery (8%), merma (5%/10%, con benchmark de industria) | ✅ Cerrado |
@@ -25,7 +25,7 @@
 | — | Prioridad de hallazgos actualizada (ya no incluye "deducibilidad", heredado del diseño PLD anterior) — propuesta en `caso_08`: fraude > conciliación > zona gris > estadística | ✅ Cerrado — fraude va primero por severidad aunque sea de baja frecuencia, no por frecuencia |
 | — | Revisión ciega del Caso 8 (segunda persona o segunda IA, sin ver `anomalias_inyectadas`) | ⏳ Pendiente — prompt listo en `caso_08_prompt_revision_ciega.md` |
 | — | Campos exactos de Umbrales/Costos en la pantalla de Configuración | ⏳ Pendiente |
-| — | Ejecutar el prompt de Kiro (Tareas 1–5) | ⏳ Pendiente |
+| 12 | Prompt de Kiro (Tareas 1–5) ejecutado sobre los specs (`.kiro/specs/mepia/`) y revisado contra este documento — sin discrepancias bloqueantes; corregido el conteo de funciones nuevas (25→24, ver decisión #5) | ✅ Cerrado — falta fase de codificación (ver sección 7) |
 
 ---
 
@@ -43,7 +43,7 @@
 
 - **Passthrough** (sin cálculo): solo metadata de identidad (negocio, sucursal, periodo) y registros puntuales de excepción ya detectados por una regla determinista. Casi nada más debe llegar crudo al LLM — es la misma razón por la que el motor de Anthropic pasó de 21% a 95%: el ruido no es "mucha información", es información sin agregar.
 - **Control** (validación de integridad, no insight de negocio): validación de IVA, cumplimiento de Cierre X/Z. Viven en `S2 Gatekeeper`, no en S3, y solo se exponen si fallan.
-- **Calculado** (función determinista en S3): el resto — 25 funciones nuevas más las 3 que ya existían en el repo (`calc_contribution_margin`, `calc_waste_analysis`, `check_price_inflation`).
+- **Calculado** (función determinista en S3): el resto — 24 funciones nuevas más las 3 que ya existían en el repo (`calc_contribution_margin`, `calc_waste_analysis`, `check_price_inflation`).
 
 El listado completo, función por función, está en `kiro_prompt_ingesta_api_metricas.md`, Tarea 3 (ya corregido).
 
@@ -173,9 +173,9 @@ Si el semáforo vive *dentro* de la pestaña "Chat IA", el dueño tiene que entr
 
 | # | Qué falta | Estado |
 |---|---|---|
-| 1 | Nodo de ingesta API | Diseño listo (Tarea 2 del prompt Kiro), falta ejecutar |
-| 2 | Extender S3 con las 25 funciones nuevas | Diseño listo (Tarea 3, corregida), falta ejecutar |
-| 3 | Retirar `contexto del día` | Diseño listo (Tarea 1), falta ejecutar |
+| 1 | Nodo de ingesta API | Spec listo y actualizado en `.kiro/specs/mepia/` (Tarea 2), falta codificar |
+| 2 | Extender S3 con las 24 funciones nuevas | Spec listo y actualizado en `.kiro/specs/mepia/` (Tarea 3, corregida), falta codificar |
+| 3 | Retirar `contexto del día` | Spec actualizado en `.kiro/specs/mepia/` (Tarea 1), falta codificar |
 | 4 | Set de evaluación offline | Diseño de los 8 escenarios listo, falta construir el JSON real de cada uno |
 | 5 | Capa de skills | Sigue sin diseñar — próximo tema pendiente después del eval set |
 | 6 | Footer de procedencia/linaje en N14 | Sigue sin diseñar |
@@ -185,7 +185,9 @@ Si el semáforo vive *dentro* de la pestaña "Chat IA", el dueño tiene que entr
 
 ## 8. Próximos pasos pendientes
 
-1. Construir el JSON real del Escenario 2 (faltante de caja) — sirve de plantilla técnica para los otros 7.
+1. ~~Construir el JSON real del Escenario 2 (faltante de caja)~~ — hecho, los 8 casos ya existen en `tests/eval_test/`.
 2. Definir los campos exactos de las pestañas Umbrales/Costos en la pantalla de Configuración (ya tienen la lista de qué debe capturarse en la sección 3, falta el detalle de UI).
-3. Ejecutar el prompt de Kiro (Tareas 1–5) para generar/actualizar los specs en `.kiro/specs/mepia/`.
-4. Después del eval set: diseñar la capa de skills y el footer de procedencia — quedaron marcados como pendientes en la sección 7 y no se ha vuelto a ellos.
+3. ~~Ejecutar el prompt de Kiro (Tareas 1–5) para generar/actualizar los specs~~ — hecho y revisado, sin discrepancias bloqueantes.
+4. **Codificar** lo que los specs actualizados ya describen (nodo de ingesta API, las 24 funciones nuevas de S3, retiro de `contexto del día`, tabla `delivery_platform_config`) — esto es lo único que falta antes de poder correr los 8 casos de `tests/eval_test/` contra un pipeline real.
+5. Correr los 8 casos y registrar el primer número de accuracy honesto.
+6. Después del eval set: diseñar la capa de skills y el footer de procedencia — quedaron marcados como pendientes en la sección 7 y no se ha vuelto a ellos.
