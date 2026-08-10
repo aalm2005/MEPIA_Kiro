@@ -51,6 +51,13 @@ from agents.factura_parser import (
     ExtractedFacturaFields,
     calculate_sha256,
 )
+from agents.api_ingest import (
+    APIIngestPayload,
+    APIIngestResult,
+    ValidationResult,
+    validate_payload,
+    persist_ingestion,
+)
 from core.config import settings
 
 # ---------------------------------------------------------------------------
@@ -1000,6 +1007,62 @@ async def review_factura(file_id: str, payload: FacturaReviewPayload):
 
 
 # ===========================================================================
+# S1B Ingesta API — POST /ingest/api-event (Ruta Primaria)
+# Spec: .kiro/specs/mepia/s1b_ingesta_api.md
+# ===========================================================================
+
+@app.post("/ingest/api-event", response_model=APIIngestResult, status_code=201)
+async def ingest_api_event(payload: APIIngestPayload):
+    """
+    POST /ingest/api-event
+    Ruta primaria de ingesta — recibe datos estructurados del POS vía API JSON.
+    Spec: s1b_ingesta_api.md
+    """
+    db = get_supabase()
+
+    # 1. Verify business exists (rule 10)
+    business_resp = (
+        db.table("businesses")
+        .select("id")
+        .eq("id", str(payload.business_id))
+        .execute()
+    )
+    business_exists = bool(business_resp.data)
+
+    # 2. Get existing order_ids for idempotency (rule 5)
+    existing_orders_resp = (
+        db.table("transactions")
+        .select("raw_metadata")
+        .eq("business_id", str(payload.business_id))
+        .eq("transaction_date", payload.date.isoformat())
+        .execute()
+    )
+    existing_order_ids: set[str] = set()
+    for row in existing_orders_resp.data or []:
+        meta = row.get("raw_metadata") or {}
+        order_id = meta.get("order_id")
+        if order_id:
+            existing_order_ids.add(order_id)
+
+    # 3. Validate payload (rules 1–10)
+    validation = validate_payload(payload, existing_order_ids, business_exists)
+
+    # 4. Return appropriate HTTP error if rejected
+    if validation.is_rejected:
+        if "404" in (validation.reject_reason or ""):
+            raise HTTPException(status_code=404, detail=validation.reject_reason)
+        elif "422" in (validation.reject_reason or ""):
+            raise HTTPException(status_code=422, detail=validation.reject_reason)
+        else:
+            raise HTTPException(status_code=400, detail=validation.reject_reason)
+
+    # 5. Persist to all tables
+    result = await asyncio.to_thread(persist_ingestion, payload, validation, db)
+
+    return result
+
+
+# ===========================================================================
 # S1 Ingesta — N03: Human Input Endpoints
 # Spec: .kiro/specs/mepia/n03_human_input_endpoints.md
 # ===========================================================================
@@ -1347,121 +1410,32 @@ async def get_cash_count(
 
 
 # ---------------------------------------------------------------------------
-# 4.3.5 — Daily Context (POST + PUT)
+# 4.3.5 — Daily Context (POST + PUT) — DEPRECATED (HTTP 410 Gone)
 # ---------------------------------------------------------------------------
 
-class DailyContextTags(BaseModel):
-    clima: Optional[Literal["lluvia", "calor", "frio"]] = None
-    equipo: Optional[Literal["falla_maquina", "mantenimiento"]] = None
-    evento: Optional[Literal["festivo", "obra_vial", "promocion"]] = None
-    personal: Optional[Literal["falta_staff", "capacitacion"]] = None
-    otros: Optional[str] = Field(default=None, max_length=500)
 
-
-class DailyContextPayload(BaseModel):
-    business_id: str
-    date: str  # YYYY-MM-DD
-    tags: DailyContextTags
-
-
-@app.post("/daily-context", status_code=201)
-async def create_daily_context(payload: DailyContextPayload):
+@app.post("/daily-context")
+async def create_daily_context():
     """
-    POST /daily-context
-    Registra los tags de contexto para un negocio y fecha.
-    Spec: n03_human_input_endpoints.md §4
+    POST /daily-context — DEPRECATED (HTTP 410 Gone)
+    daily_context fue retirado del pipeline en la sesión de codificación.
     """
-    db = get_supabase()
-
-    # 1. Verificar business_id existe
-    biz = db.table("businesses").select("id").eq("id", payload.business_id).execute()
-    if not biz.data:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Negocio '{payload.business_id}' no encontrado.",
-        )
-
-    # 2. Verificar que no existe contexto para business_id + date
-    existing = (
-        db.table("daily_context")
-        .select("id")
-        .eq("business_id", payload.business_id)
-        .eq("date", payload.date)
-        .execute()
+    raise HTTPException(
+        status_code=410,
+        detail="daily_context fue retirado del pipeline. Este endpoint ya no está disponible."
     )
-    if existing.data:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Ya existe contexto para business_id='{payload.business_id}' "
-                f"y date='{payload.date}'. Usar PUT para actualizar."
-            ),
-        )
-
-    # 3. Insertar en daily_context con tags como JSONB
-    # Los campos null se persisten como null, nunca como string vacío
-    context_id = str(uuid4())
-    now_iso = datetime.now(timezone.utc).isoformat()
-    tags_dict = payload.tags.model_dump()  # None values preserved as null
-
-    db.table("daily_context").insert(
-        {
-            "id": context_id,
-            "business_id": payload.business_id,
-            "date": payload.date,
-            "tags": tags_dict,
-            "created_at": now_iso,
-        }
-    ).execute()
-
-    # 4. Retornar el registro creado con context_id
-    return {
-        "context_id": context_id,
-        "business_id": payload.business_id,
-        "date": payload.date,
-        "tags": tags_dict,
-        "created_at": now_iso,
-    }
 
 
 @app.put("/daily-context/{context_id}")
-async def update_daily_context(context_id: str, payload: DailyContextPayload):
+async def update_daily_context(context_id: str):
     """
-    PUT /daily-context/{context_id}
-    Actualiza los tags de un contexto ya registrado.
-    Spec: n03_human_input_endpoints.md §4
+    PUT /daily-context/{context_id} — DEPRECATED (HTTP 410 Gone)
+    daily_context fue retirado del pipeline en la sesión de codificación.
     """
-    db = get_supabase()
-
-    # 1. Verificar que context_id existe
-    existing = (
-        db.table("daily_context").select("*").eq("id", context_id).execute()
+    raise HTTPException(
+        status_code=410,
+        detail="daily_context fue retirado del pipeline. Este endpoint ya no está disponible."
     )
-    if not existing.data:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Contexto '{context_id}' no encontrado.",
-        )
-
-    # 2. Actualizar tags (null values preserved as null, nunca string vacío)
-    now_iso = datetime.now(timezone.utc).isoformat()
-    tags_dict = payload.tags.model_dump()
-
-    db.table("daily_context").update(
-        {
-            "tags": tags_dict,
-            "updated_at": now_iso,
-        }
-    ).eq("id", context_id).execute()
-
-    # 3. Retornar el registro actualizado
-    return {
-        "context_id": context_id,
-        "business_id": payload.business_id,
-        "date": payload.date,
-        "tags": tags_dict,
-        "updated_at": now_iso,
-    }
 
 
 # ===========================================================================
@@ -1598,7 +1572,7 @@ async def run_audit(payload: AuditRunPayload):
         1. Verificar que el negocio existe (404 si no)
         2. Verificar que S3 corrió — hay métricas active en metric_status (409 si no)
         3. Recuperar CalcResult[] desde audit_results (node_id="S3")
-        4. Recuperar daily_context.tags del día
+        4. daily_context_tags = None (daily_context fue retirado del pipeline)
         5. Ejecutar ForensicCFOAgent.run()
         6. Persistir ForensicReport en audit_results con node_id="S4"
         7. Retornar ForensicReport
@@ -1641,21 +1615,8 @@ async def run_audit(payload: AuditRunPayload):
             detail="S3 corrió pero no produjo resultados. Verificar datos de ingesta.",
         )
 
-    # 4. Recuperar daily_context.tags del día (opcional — no bloquea si no existe)
+    # 4. daily_context fue retirado del pipeline — siempre None
     daily_context_tags: Optional[dict] = None
-    try:
-        ctx_resp = (
-            db.table("daily_context")
-            .select("tags")
-            .eq("business_id", payload.business_id)
-            .eq("date", payload.date)
-            .single()
-            .execute()
-        )
-        if ctx_resp.data:
-            daily_context_tags = ctx_resp.data.get("tags")
-    except Exception:
-        pass  # daily_context es opcional — observed_causality será null
 
     # 5. Ejecutar ForensicCFOAgent
     agent = ForensicCFOAgent()

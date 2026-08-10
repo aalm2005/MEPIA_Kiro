@@ -192,8 +192,8 @@ class N05CEOOrchestrator:
         calc_results_dicts = [r.model_dump(mode="json") for r in calc_run.results]
 
         # --- 3. Ejecutar S4 Forensic CFO ---
-        # Recuperar daily_context.tags
-        daily_context_tags = self._get_daily_context(business_id, date)
+        # daily_context reading removed (deprecated) — observed_causality always None
+        daily_context_tags = None
 
         forensic_agent = ForensicCFOAgent()
         forensic_report = forensic_agent.run(
@@ -288,7 +288,8 @@ class N05CEOOrchestrator:
         """
         insights: list[AuditInsight] = []
         frame = _CEO_FRAMES[archetype]
-        observed = forensic_report.observed_causality
+        # observed_causality is always None (deprecated)
+        observed = None
 
         # --- Insights para anomalías (negativos) ---
         for anomaly in forensic_report.anomalies:
@@ -529,23 +530,12 @@ class N05CEOOrchestrator:
             return ""
 
     # ------------------------------------------------------------------
-    # Recuperación de daily_context
+    # Recuperación de daily_context (DEPRECATED — stub returning None)
     # ------------------------------------------------------------------
 
-    def _get_daily_context(self, business_id: str, date: str) -> Optional[dict]:
-        """Recupera los tags del día desde daily_context. Retorna None si no existe."""
-        try:
-            resp = (
-                self._db.table("daily_context")
-                .select("tags")
-                .eq("business_id", business_id)
-                .eq("date", date)
-                .single()
-                .execute()
-            )
-            return resp.data.get("tags") if resp.data else None
-        except Exception:
-            return None
+    def _get_daily_context(self, business_id: str, date: str) -> None:
+        """DEPRECATED: daily_context reading removed. Always returns None."""
+        return None
 
     # ------------------------------------------------------------------
     # Lógica de escalación a Layer 2
