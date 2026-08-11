@@ -19,6 +19,7 @@
 | needs_human_review   | Flag en `documents`: true si OCR < 85% de confianza o campo obligatorio ausente |
 | initial_float        | Fondo inicial del cajón al abrir el día |
 | raw_metadata         | JSONB en `transactions` con campos extraídos fuera del mapeo obligatorio (future-proofing) |
+| multi_sucursal       | Flag en `businesses`: true si el negocio tiene más de una sucursal — habilita `calc_sales_by_branch` en S3 |
 
 ## Componentes de infraestructura
 
@@ -48,11 +49,14 @@
 | `pos_inputs`           | Ventas diarias POS: `cash_sales`, `card_sales`, `refunds` |
 | `cash_counts`          | Conteo físico del cajón: `initial_float`, `actual_counted`, `cash_payouts` |
 | `recipes`              | BOM por producto con `sale_price` e `ingredients` (JSONB) |
-| `daily_context`        | Tags de contexto del día (JSONB) |
+| `daily_context`        | Tags de contexto del día (JSONB) — ⚠️ **DEPRECATED**: tabla retirada del pipeline |
 | `metric_status`        | Estado `dormant`/`active`/`blocked` por métrica, negocio y fecha |
 | `unit_conversions`     | Catálogo de conversiones de unidades para el Motor de Cálculo |
 | `audit_results`        | Outputs de todos los nodos del pipeline con `pipeline_layer`, `node_id`, `node_status` |
 | `mepia_memory`         | Embeddings semánticos para LangChain RAG ("Brain"). FK real a `businesses`. Escritura solo desde N12/N13 vía `MemoryService`. Engram reconstruye desde aquí. |
+| `shift_audit_events`   | Eventos de auditoría operativa por turno — cancelaciones, reimpresiones, clock_in/out |
+| `inventory_daily`      | Snapshot diario de inventario: consumo teórico, merma, stock, costo unitario |
+| `delivery_platform_config` | Comisiones por plataforma de delivery (UberEats, Rappi, DiDi). Config del negocio |
 
 ## Campos JSONB clave
 
@@ -61,7 +65,7 @@
 | `extracted_data` | `documents`     | Respuesta cruda del agente IA |
 | `metadata`       | `transactions`  | Datos extra por tipo de documento |
 | `raw_metadata`   | `transactions`  | Todo campo extraído fuera del mapeo obligatorio |
-| `tags`           | `daily_context` | `{ clima, equipo, evento, personal, otros }` |
+| `tags`           | `daily_context` | `{ clima, equipo, evento, personal, otros }` — ⚠️ DEPRECATED |
 | `ingredients`    | `recipes`       | `{ cafe_g: 18, leche_ml: 250 }` |
 | `missing_fields` | `metric_status` | Lista de datos faltantes para activar la métrica |
 | `metadata`       | `mepia_memory`  | `{ "node_origin": "N12", "date": "YYYY-MM-DD", "chunk_index": 0, "chunk_total": 4 }` |
@@ -95,8 +99,11 @@
 
 ## Contratos de datos
 
-### DailyContextPayload
+### DailyContextPayload ⚠️ DEPRECATED
 ```
+# DEPRECATED — daily_context fue retirado del pipeline.
+# Endpoint POST /daily-context retorna HTTP 410 Gone.
+# Se conserva aquí solo como referencia histórica.
 business_id: UUID
 date: YYYY-MM-DD
 tags: {
@@ -118,6 +125,80 @@ ocr_confidence: float | null       # null para XML
 transaction_id: UUID | null        # null si needs_human_review
 extracted_fields: ExtractedFacturaFields | null
 missing_fields: string[] | null
+```
+
+### TicketEvent (S1B — Ingesta API)
+```
+order_id: str                       # ID único del ticket en el POS
+timestamp: datetime                 # UTC ISO-8601
+sucursal_id: str
+cajero_id: str | null
+mesero_id: str | null
+order_type: "Comedor" | "Para llevar" | "Delivery App"
+subtotal: Decimal                   # antes de IVA y descuentos
+tax: Decimal                        # IVA — debe ser ≈ 16% de subtotal
+discounts: Decimal                  # default 0
+total_net: Decimal                  # subtotal + tax - discounts
+items: ProductLine[]                # detalle de productos (Nivel 2)
+```
+
+### ProductLine (S1B — Ingesta API)
+```
+item_id: str                        # ID del producto en catálogo POS
+product_name: str
+group: str                          # categoría principal
+subgroup: str | null                # subcategoría
+variant_modifier: str | null        # modificadores (ej. "extra shot")
+unit_price: Decimal                 # precio unitario sin descuento
+quantity: int                       # >= 1
+item_discount: Decimal              # default 0
+```
+
+### PaymentBreakdown (S1B — Ingesta API)
+```
+order_id: str                       # FK lógico a TicketEvent.order_id
+efectivo: Decimal                   # default 0
+tarjeta_clip: Decimal               # default 0
+uber_eats: Decimal                  # default 0
+rappi: Decimal                      # default 0
+didi_food: Decimal                  # default 0
+cortesia_staff: Decimal             # default 0
+tarjetas_lealtad: Decimal           # default 0
+```
+
+### ShiftAuditEvent (S1B — Ingesta API)
+```
+sucursal_id: str
+date: date
+cancellations: CancellationRecord[]     # motivo, responsable, timing (pre/post comanda)
+reprints: int                           # reimpresiones de tickets
+shifts: ShiftData[]                     # al menos 1 turno por día
+clock_records: ClockRecord[]            # registros de entrada/salida de personal
+```
+
+### InventoryUsageEvent (S1B — Ingesta API)
+```
+ingredient_id: str                  # ID del insumo en catálogo
+ingredient_name: str
+unit: str                           # unidad base (g, ml, unidad)
+consumo_teorico: Decimal            # consumo teórico del día por recetas
+waste_recorded: Decimal             # merma registrada manualmente
+current_stock: Decimal              # existencia actual
+unit_cost: Decimal                  # costo unitario última compra
+```
+
+### APIIngestResult (S1B — Ingesta API)
+```
+business_id: UUID
+date: date
+sucursal_id: str
+tickets_received: int
+tickets_persisted: int
+tickets_skipped: int                # duplicados (idempotencia)
+validation_flags: string[]          # flags de integridad detectados
+inventory_records: int
+shift_records: int
+status: "success" | "partial" | "rejected"
 ```
 
 ### ExpenseBehaviorPayload

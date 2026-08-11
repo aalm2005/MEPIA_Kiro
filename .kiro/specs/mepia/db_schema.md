@@ -15,6 +15,7 @@
 | industry_sector  | text        | ej. "cafetería", "restaurante"     |
 | currency         | text        | ISO 4217, default "MXN"            |
 | opening_date     | date        | Fecha de apertura — requerido por N09 para ciclo de vida |
+| multi_sucursal   | bool        | default false — habilita `calc_sales_by_branch` en S3     |
 | operating_hours  | jsonb       | `{ "open": "08:00", "close": "22:00" }` |
 | created_at       | timestamptz | default now()                      |
 
@@ -121,7 +122,16 @@ Conteo físico del cajón. Input para `calc_cash_reconciliation`.
 
 ---
 
-## Tabla: `daily_context`
+## Tabla: `daily_context` ⚠️ DEPRECATED — REMOVED
+
+> **Deprecada:** Esta tabla fue retirada del pipeline. El "contexto del día" (tags + texto libre) generaba ruido y no aportaba al diseño final. Los datos existentes pueden permanecer en la DB pero ningún nodo del pipeline debe leer ni escribir en esta tabla.
+>
+> **Impacto:**
+> - `S4 Forensic CFO`: ya no recibe `observed_causality` / `daily_context tags` como input. El campo `ForensicReport.observed_causality` queda como `null` siempre.
+> - `N05 CEO Orchestrator`: la lógica de `observed_causality` para ajustar tono de `copilot_phrase` queda inactiva (el campo será siempre `null`).
+> - `metadata` JSONB en `transactions`: el campo `context_tags` que referenciaba `daily_context` ya no se popula.
+> - `DailyContextPayload` en `_glossary.md`: contrato marcado como deprecated.
+> - Endpoint `POST /daily-context` en `n03_human_input_endpoints.md`: deprecated, retorna HTTP 410 Gone.
 
 | Campo       | Tipo        | Notas                                           |
 |-------------|-------------|-------------------------------------------------|
@@ -130,6 +140,8 @@ Conteo físico del cajón. Input para `calc_cash_reconciliation`.
 | date        | date        |                                                 |
 | tags        | jsonb       | `{ clima, equipo, evento, personal, otros }`    |
 | created_at  | timestamptz | default now()                                   |
+
+**Migración de retiro:** `supabase/migrations/004_deprecate_daily_context.sql` — no elimina la tabla, solo agrega comment `DEPRECATED` y remueve los índices activos.
 
 ---
 
@@ -185,6 +197,72 @@ Estado del circuit breaker por nodo, negocio y fecha. Consultado por N06 antes d
 | updated_at         | timestamptz  | default now()                                            |
 
 Regla: `consecutive_failures >= 3` → `circuit_status: "open"` automáticamente.
+
+---
+
+## Tabla: `shift_audit_events` 🔧 NEW
+
+Eventos de auditoría operativa por turno. Input para métricas de operación/caja en S3.
+
+| Campo              | Tipo         | Notas                                    |
+|--------------------|--------------|------------------------------------------|
+| id                 | uuid PK      | gen_random_uuid()                        |
+| business_id        | uuid FK      | → businesses.id                          |
+| sucursal_id        | text         | identificador de sucursal                |
+| date               | date         |                                          |
+| turno              | text         | "matutino", "vespertino", etc.           |
+| apertura           | numeric(12,2)| fondo de apertura del turno              |
+| cierre_x           | numeric(12,2)| lectura X (parcial)                      |
+| cierre_z           | numeric(12,2)| lectura Z (cierre final)                 |
+| sobrante_faltante  | numeric(12,2)| positivo = sobrante, negativo = faltante |
+| cancellations      | jsonb        | array de `{order_id, motivo, responsable, timing}` |
+| reprints           | int          | default 0                                |
+| clock_records      | jsonb        | array de `{employee_id, clock_in, clock_out}` |
+| created_at         | timestamptz  | default now()                            |
+
+---
+
+## Tabla: `inventory_daily` 🔧 NEW
+
+Snapshot diario de inventario y costos teóricos. Input para métricas de inventario en S3.
+
+| Campo              | Tipo         | Notas                                    |
+|--------------------|--------------|------------------------------------------|
+| id                 | uuid PK      | gen_random_uuid()                        |
+| business_id        | uuid FK      | → businesses.id                          |
+| date               | date         |                                          |
+| ingredient_id      | text         | ID del insumo en catálogo POS            |
+| ingredient_name    | text         |                                          |
+| unit               | text         | unidad base (g, ml, unidad)              |
+| consumo_teorico    | numeric(12,4)| consumo teórico del día por recetas      |
+| waste_recorded     | numeric(12,4)| merma registrada manualmente             |
+| current_stock      | numeric(12,4)| existencia actual al cierre              |
+| unit_cost          | numeric(12,4)| costo unitario última compra             |
+| created_at         | timestamptz  | default now()                            |
+
+UNIQUE constraint: `(business_id, date, ingredient_id)` — upsert semántico.
+
+---
+
+## Tabla: `delivery_platform_config` 🔧 NEW
+
+Configuración de comisiones por plataforma de delivery. Llenada/actualizada por el negocio.
+S3 `calc_delivery_commission_cost` lee de aquí — nunca asume tasa fija en código.
+
+| Campo              | Tipo         | Notas                                    |
+|--------------------|--------------|------------------------------------------|
+| id                 | uuid PK      | gen_random_uuid()                        |
+| business_id        | uuid FK      | → businesses.id                          |
+| platform           | text         | "UberEats" \| "Rappi" \| "DiDiFood"     |
+| commission_rate    | numeric(5,4) | ej. 0.3000 = 30%                         |
+| effective_date     | date         | fecha desde la cual aplica esta tasa     |
+| created_at         | timestamptz  | default now()                            |
+
+UNIQUE constraint: `(business_id, platform, effective_date)` — permite historial de tasas.
+
+Regla de lectura en S3: para calcular comisión de un día D, usar la tasa con
+`effective_date <= D` más reciente. Si no existe configuración para una plataforma,
+S3 retorna `status: "incomplete_data"` para esa plataforma.
 
 ---
 
@@ -245,6 +323,11 @@ CREATE INDEX idx_audit_results_run         ON audit_results (run_id);
 CREATE INDEX idx_audit_results_lookup      ON audit_results (business_id, date, pipeline_layer, node_id);
 CREATE INDEX idx_circuit_breaker_lookup    ON circuit_breaker_state (business_id, date, node_id);
 CREATE INDEX idx_circuit_breaker_open      ON circuit_breaker_state (node_id, circuit_status) WHERE circuit_status = 'open';
+-- Tablas nuevas (S1B ingesta API)
+CREATE INDEX idx_shift_audit_lookup        ON shift_audit_events (business_id, date, sucursal_id);
+CREATE INDEX idx_inventory_daily_lookup    ON inventory_daily (business_id, date);
+CREATE INDEX idx_inventory_daily_ingredient ON inventory_daily (business_id, ingredient_id, date);
+CREATE INDEX idx_delivery_platform_lookup  ON delivery_platform_config (business_id, platform, effective_date DESC);
 -- Vector similarity search (cosine, hnsw) — preciso desde registro cero, mayor uso de RAM
 -- hnsw elegido sobre ivfflat porque funciona bien con cualquier volumen de datos (V1 friendly)
 CREATE INDEX idx_memory_embedding       ON mepia_memory USING hnsw (embedding vector_cosine_ops);
@@ -262,13 +345,16 @@ CREATE INDEX idx_memory_created         ON mepia_memory (business_id, created_at
 businesses (1) ──< documents (N)
 businesses (1) ──< transactions (N)
 businesses (1) ──< recipes (N)
-businesses (1) ──< daily_context (N)
+businesses (1) ──< daily_context (N)          [DEPRECATED]
 businesses (1) ──< metric_status (N)
 businesses (1) ──< pos_inputs (N)
 businesses (1) ──< cash_counts (N)
 businesses (1) ──< business_fixed_costs (N)
 businesses (1) ──< audit_results (N)
 businesses (1) ──< circuit_breaker_state (N)
+businesses (1) ──< shift_audit_events (N)
+businesses (1) ──< inventory_daily (N)
+businesses (1) ──< delivery_platform_config (N)
 documents  (1) ──< transactions (N)
 -- mepia_memory tiene FK real a businesses (ON DELETE CASCADE) — no más registros huérfanos
 businesses (1) ──< mepia_memory (N)
@@ -283,3 +369,5 @@ businesses (1) ──< mepia_memory (N)
 - Campos nuevos vs original: `tax_amount`, `supplier_name`, `concept`, `document_reference`, `expense_behavior`, `raw_metadata` en `transactions`
 - Nuevas tablas: `businesses`, `business_fixed_costs`, `documents`, `recipes`, `daily_context`, `metric_status`, `unit_conversions`, `pos_inputs`, `cash_counts`, `audit_results`, `circuit_breaker_state`
 - `003_memory.sql` ✅: habilita extensión `vector` + crea `mepia_memory` con FK real a `businesses`, columnas `status`, `source_audit_run_id` nullable, embedding `vector(1536)` para `text-embedding-3-small` (1536 dims — decisión fija V1), índice HNSW coseno
+- `004_deprecate_daily_context.sql` 🔧: marca `daily_context` como deprecated, remueve índices activos
+- `005_api_ingesta_tables.sql` 🔧: crea `shift_audit_events`, `inventory_daily`, `delivery_platform_config` con índices

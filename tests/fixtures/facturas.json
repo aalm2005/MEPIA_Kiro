@@ -1,0 +1,479 @@
+[
+  {
+    "file_id": "1ba1d4de-97a5-4994-8556-b2e66c1af681",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-03-22/7b5c12ed-b48d-43f1-b5f6-7c53ed74fe0b.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "c34331a9-b334-4e9d-82de-0d1d44624fe6",
+    "extracted_fields": {
+      "transaction_date": "2024-03-22",
+      "amount": 348.34,
+      "tax_amount": 48.05,
+      "supplier_name": "Lácteos del Valle SA",
+      "concept": "Leche entera 24 piezas",
+      "document_reference": "FAC-2024-00001"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 300.29,
+      "iva_trasladado": 48.05,
+      "retencion_isr": 0.0,
+      "retencion_iva": 0.0,
+      "total": 348.34,
+      "tasa_iva": 0.16
+    },
+    "raw_metadata": {
+      "rfc_emisor": "LVA190515BBB",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0"
+    },
+    "_anomaly": null
+  },
+  {
+    "file_id": "27c84874-6afd-400e-88fa-12f2b1ca93d3",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-01/a56e0c0e-7a48-428f-80d0-f9ac21f12416.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "1b7cb1a2-0e28-4aa7-b033-372d53aea6ca",
+    "extracted_fields": {
+      "transaction_date": "2024-02-01",
+      "amount": 229.82,
+      "tax_amount": 31.7,
+      "supplier_name": "Carnes Selectas del Norte SA",
+      "concept": "Azúcar refinada 10kg",
+      "document_reference": "FAC-2024-00002"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 198.12,
+      "iva_trasladado": 31.7,
+      "retencion_isr": 0.0,
+      "retencion_iva": 0.0,
+      "total": 229.82,
+      "tasa_iva": 0.16
+    },
+    "raw_metadata": {
+      "rfc_emisor": "CSN170820DDD",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0"
+    },
+    "_anomaly": null
+  },
+  {
+    "file_id": "b302cda2-b50b-4831-894c-0cb6148c4944",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-03-27/f4097919-969b-4331-87cd-be1ca72b619f.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "19982c2e-600c-4058-b263-936f89dac47d",
+    "extracted_fields": {
+      "transaction_date": "2024-03-27",
+      "amount": 135.94,
+      "tax_amount": 18.75,
+      "supplier_name": "Lácteos del Valle SA",
+      "concept": "Servilletas 1000 pzas",
+      "document_reference": "FAC-2024-00003"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 117.19,
+      "iva_trasladado": 18.75,
+      "retencion_isr": 0.0,
+      "retencion_iva": 0.0,
+      "total": 135.94,
+      "tasa_iva": 0.16
+    },
+    "raw_metadata": {
+      "rfc_emisor": "LVA190515BBB",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0"
+    },
+    "_anomaly": null
+  },
+  {
+    "file_id": "89207a98-3d0a-46a5-a076-18df235a6d48",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-01-04/53f8f9f6-16e4-4b35-9365-c155d51c8f14.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "53c9fb1b-5985-443c-89e3-de0e7cbd6c7d",
+    "extracted_fields": {
+      "transaction_date": "2024-01-04",
+      "amount": 341.43,
+      "tax_amount": 47.09,
+      "supplier_name": "Lácteos del Valle SA",
+      "concept": "Harina de trigo 25kg",
+      "document_reference": "FAC-2024-00004"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 294.34,
+      "iva_trasladado": 47.09,
+      "retencion_isr": 0.0,
+      "retencion_iva": 0.0,
+      "total": 341.43,
+      "tasa_iva": 0.16
+    },
+    "raw_metadata": {
+      "rfc_emisor": "LVA190515BBB",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0"
+    },
+    "_anomaly": null
+  },
+  {
+    "file_id": "b33b857a-88b7-436d-9972-9fd09d021154",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-03-18/489d53ba-e6be-4bf3-82d1-c3b3d6d7deb2.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "efad3e66-94ca-48f1-8079-6c30963bbd27",
+    "extracted_fields": {
+      "transaction_date": "2024-03-18",
+      "amount": 100.25,
+      "tax_amount": 13.83,
+      "supplier_name": "Distribuidora La Paloma SA de CV",
+      "concept": "Cebolla blanca 10kg",
+      "document_reference": "FAC-2024-00005"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 86.42,
+      "iva_trasladado": 13.83,
+      "retencion_isr": 0.0,
+      "retencion_iva": 0.0,
+      "total": 100.25,
+      "tasa_iva": 0.16
+    },
+    "raw_metadata": {
+      "rfc_emisor": "DLP200101AAA",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0"
+    },
+    "_anomaly": null
+  },
+  {
+    "file_id": "4eb45e16-c0a8-42b1-8605-7a6a7f9feaec",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-03-24/29f2255a-ac05-4cd6-a46a-646b84977e0b.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "234ebba5-4a22-4307-b92b-6d7bc6ca91eb",
+    "extracted_fields": {
+      "transaction_date": "2024-03-24",
+      "amount": 365.54,
+      "tax_amount": 50.42,
+      "supplier_name": "Bebidas y Refrescos del Centro SA",
+      "concept": "Harina de trigo 25kg",
+      "document_reference": "FAC-2024-00006"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 315.12,
+      "iva_trasladado": 50.42,
+      "retencion_isr": 0.0,
+      "retencion_iva": 0.0,
+      "total": 365.54,
+      "tasa_iva": 0.16
+    },
+    "raw_metadata": {
+      "rfc_emisor": "BRC200901GGG",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0"
+    },
+    "_anomaly": null
+  },
+  {
+    "file_id": "5c3247c7-c3e7-4bfa-8519-92b7d5031042",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-05/01fd6a53-cd2b-427e-95af-9fed17568975.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "1d776259-acc5-456c-a43a-6392bc99e936",
+    "extracted_fields": {
+      "transaction_date": "2024-02-05",
+      "amount": 227.36,
+      "tax_amount": 31.36,
+      "supplier_name": "Distribuidora La Paloma SA de CV",
+      "concept": "Azúcar refinada 10kg",
+      "document_reference": "FAC-2024-00007"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 196.0,
+      "iva_trasladado": 31.36,
+      "retencion_isr": 0.0,
+      "retencion_iva": 0.0,
+      "total": 227.36,
+      "tasa_iva": 0.16
+    },
+    "raw_metadata": {
+      "rfc_emisor": "DLP200101AAA",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0"
+    },
+    "_anomaly": null
+  },
+  {
+    "file_id": "365d852f-b7e5-4697-8eee-0ac355862aad",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-13/0fc76f43-b616-45b7-a4ee-fe339d9d6aa2.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "5418b11e-9e71-4f4b-9cd5-1280e5192b3d",
+    "extracted_fields": {
+      "transaction_date": "2024-02-13",
+      "amount": 196.27,
+      "tax_amount": 27.07,
+      "supplier_name": "Frutas y Verduras El Huerto SC",
+      "concept": "Azúcar refinada 10kg",
+      "document_reference": "FAC-2024-00008"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 169.2,
+      "iva_trasladado": 27.07,
+      "retencion_isr": 0.0,
+      "retencion_iva": 0.0,
+      "total": 196.27,
+      "tasa_iva": 0.16
+    },
+    "raw_metadata": {
+      "rfc_emisor": "FVH160610EEE",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0"
+    },
+    "_anomaly": null
+  },
+  {
+    "file_id": "06a03923-cab7-4ae3-9a15-21fa683fe5d0",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-13/49d4c280-5236-4036-be74-7178c0166f00.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "0476316e-99b7-48a1-9247-1c48535fd510",
+    "extracted_fields": {
+      "transaction_date": "2024-02-13",
+      "amount": 2607.33,
+      "tax_amount": 400.0,
+      "supplier_name": "Servicios de Limpieza ProClean SC",
+      "concept": "Servicio de fumigación mensual",
+      "document_reference": "SRV-2024-00100"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 2500.0,
+      "iva_trasladado": 400.0,
+      "retencion_isr": 250.0,
+      "retencion_iva": 42.67,
+      "total": 2607.33,
+      "tasa_iva": 0.16,
+      "tasa_retencion_isr": 0.1,
+      "tasa_retencion_iva": 0.106667
+    },
+    "raw_metadata": {
+      "rfc_emisor": "SLP220101III",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0",
+      "has_retentions": true
+    },
+    "_anomaly": null
+  },
+  {
+    "file_id": "6e41424b-34df-475c-bede-1432f65b3b41",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-18/fa42f328-c49b-48fa-b2f4-06d8450cd206.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "686d6ea6-44a2-42a8-84c3-2fe513c251bc",
+    "extracted_fields": {
+      "transaction_date": "2024-02-18",
+      "amount": 3963.15,
+      "tax_amount": 608.0,
+      "supplier_name": "Servicios de Limpieza ProClean SC",
+      "concept": "Mantenimiento máquina espresso",
+      "document_reference": "SRV-2024-00101"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 3800.0,
+      "iva_trasladado": 608.0,
+      "retencion_isr": 380.0,
+      "retencion_iva": 64.85,
+      "total": 3963.15,
+      "tasa_iva": 0.16,
+      "tasa_retencion_isr": 0.1,
+      "tasa_retencion_iva": 0.106667
+    },
+    "raw_metadata": {
+      "rfc_emisor": "SLP220101III",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0",
+      "has_retentions": true
+    },
+    "_anomaly": null
+  },
+  {
+    "file_id": "1ba1d4de-97a5-4994-8556-b2e66c1af681",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-03-22/7b5c12ed-b48d-43f1-b5f6-7c53ed74fe0b.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "c34331a9-b334-4e9d-82de-0d1d44624fe6",
+    "extracted_fields": {
+      "transaction_date": "2024-03-22",
+      "amount": 348.34,
+      "tax_amount": 48.05,
+      "supplier_name": "Lácteos del Valle SA",
+      "concept": "Leche entera 24 piezas",
+      "document_reference": "FAC-2024-00001"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 300.29,
+      "iva_trasladado": 48.05,
+      "retencion_isr": 0.0,
+      "retencion_iva": 0.0,
+      "total": 348.34,
+      "tasa_iva": 0.16
+    },
+    "raw_metadata": {
+      "rfc_emisor": "LVA190515BBB",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0"
+    },
+    "_anomaly": {
+      "type": "source_discrepancy",
+      "description": "Factura duplicada detectada — mismo SHA-256 y business_id",
+      "severity": "high"
+    }
+  },
+  {
+    "file_id": "c03b0845-dfb3-4469-9f27-09aec2fa8fb5",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-14/8649d4a2-6b48-485b-8723-0312d726a53f.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "88137f13-8fb0-4eb6-b284-28c660ff92ca",
+    "extracted_fields": {
+      "transaction_date": "2024-02-14",
+      "amount": 487.2,
+      "tax_amount": 67.2,
+      "supplier_name": "Distribuidora La Paloma SA de CV",
+      "concept": "Leche entera 24 piezas",
+      "document_reference": "FAC-2024-00200"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 420.0,
+      "iva_trasladado": 67.2,
+      "retencion_isr": 0.0,
+      "retencion_iva": 0.0,
+      "total": 487.2,
+      "tasa_iva": 0.16
+    },
+    "raw_metadata": {
+      "rfc_emisor": "DLP200101AAA",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0",
+      "price_vs_average": "+50%"
+    },
+    "_anomaly": {
+      "type": "cost_spike",
+      "description": "Precio de leche 50% sobre promedio histórico",
+      "severity": "high",
+      "quantified_impact": "+$140.00 MXN sobre precio promedio"
+    }
+  },
+  {
+    "file_id": "fe7345df-95ad-45f9-b6a0-1c9e83902cd6",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-03-18/550fe3b4-0a47-4a25-a7da-ecde8ca650f6.xml",
+    "extraction_status": "success",
+    "needs_human_review": false,
+    "ocr_confidence": null,
+    "transaction_id": "4a441e17-2d3f-4d9f-b15e-5cd61fa8b80d",
+    "extracted_fields": {
+      "transaction_date": "2024-03-18",
+      "amount": 487.2,
+      "tax_amount": 67.2,
+      "supplier_name": "Distribuidora La Paloma SA de CV",
+      "concept": "Leche entera 24 piezas",
+      "document_reference": "FAC-2024-00201"
+    },
+    "missing_fields": null,
+    "niif_tax_breakdown": {
+      "subtotal": 420.0,
+      "iva_trasladado": 67.2,
+      "retencion_isr": 0.0,
+      "retencion_iva": 0.0,
+      "total": 487.2,
+      "tasa_iva": 0.16
+    },
+    "raw_metadata": {
+      "rfc_emisor": "DLP200101AAA",
+      "category": "proveedor",
+      "document_type": "XML",
+      "cfdi_version": "4.0",
+      "price_vs_average": "+50%"
+    },
+    "_anomaly": {
+      "type": "cost_spike",
+      "description": "Precio de leche 50% sobre promedio histórico",
+      "severity": "high",
+      "quantified_impact": "+$140.00 MXN sobre precio promedio"
+    }
+  },
+  {
+    "file_id": "6e258f4a-d63f-4720-8337-aa0ce95ac460",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-03/fc2bf7a2-f2fc-44d9-8a83-ca3463ab1025.pdf",
+    "extraction_status": "needs_human_review",
+    "needs_human_review": true,
+    "ocr_confidence": 0.76,
+    "transaction_id": null,
+    "extracted_fields": null,
+    "missing_fields": [
+      "supplier_name",
+      "document_reference",
+      "transaction_date"
+    ],
+    "niif_tax_breakdown": null,
+    "raw_metadata": {
+      "document_type": "PDF",
+      "raw_text_length": 765
+    },
+    "_anomaly": null
+  },
+  {
+    "file_id": "90ef9312-cea6-4604-89c8-7181afc21bf1",
+    "storage_path": "facturas/4704dfb4-f58d-4013-b513-1f12841f1e22/2024-02-07/37dd1de6-c18a-4853-a1d2-56ea5f69b12e.pdf",
+    "extraction_status": "needs_human_review",
+    "needs_human_review": true,
+    "ocr_confidence": 0.81,
+    "transaction_id": null,
+    "extracted_fields": null,
+    "missing_fields": [
+      "document_reference",
+      "amount"
+    ],
+    "niif_tax_breakdown": null,
+    "raw_metadata": {
+      "document_type": "PDF",
+      "raw_text_length": 271
+    },
+    "_anomaly": null
+  }
+]

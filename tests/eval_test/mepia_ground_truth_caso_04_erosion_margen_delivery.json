@@ -1,0 +1,494 @@
+{
+  "id": "caso_04_erosion_margen_delivery",
+  "tipo": "dia_completo_sintetico",
+  "escenario_narrativo": "El mix de ventas del día se sesga fuerte hacia UberEats y Rappi (comisión alta) en vez del mix base (~15% delivery). Prueba la métrica nueva de mayor valor del catálogo — calc_delivery_commission_cost — cruzada con el margen de contribución que ya existe en el repo.",
+  "anomalias_inyectadas": [
+    {
+      "donde": "día completo",
+      "que": "38.1% de las ventas por UberEats/Rappi (vs ~15% base)",
+      "metrica_que_deberia_dispararse": "calc_channel_mix refleja el sesgo; calc_delivery_commission_cost + calc_contribution_margin muestran el impacto real en pesos"
+    }
+  ],
+  "notas_construccion": [
+    "IMPORTANTE — este caso necesita datos que NO vienen en el JSON de la nueva API: el costo de receta por producto. calc_contribution_margin ya existe en el repo y depende del insumo 'Recetas (BOM)' — un input separado que S1 ya contempla desde antes de este rediseño (ver s1_ingesta.md, Tarea 1 del prompt de Kiro: 'POS/API, Facturas, Recetas (BOM)'). Para que este caso sea autocontenido, incluyo un bloque 'recetario_referencia' simplificado con solo 3 productos — en producción esto vendría del BOM real, no de este JSON.",
+    "Supuesto declarado: la comisión de delivery se calcula sobre el subtotal (precio de menú antes de IVA), no sobre el total_net. Es la convención más común en la industria, pero no está confirmada contra el contrato real de UberEats/Rappi para este negocio — verificar antes de dar el número por definitivo.",
+    "Umbral de 8% (costo de comisión / ventas del día) confirmado como default real, no solo propuesta — el usuario puede ajustarlo después desde la pantalla de Umbrales, como cualquier métrica Tipo B.",
+    "Para mantener el caso legible, cada canal usa un solo producto representativo (Comedor=Chilaquiles, Para llevar=Combo, Delivery=Pizza) en vez de mezclar varios — simplificación deliberada, no representa la variedad real de un menú."
+  ],
+  "config_negocio": {
+    "multi_sucursal": false,
+    "comisiones_delivery": {
+      "UberEats": 0.27,
+      "Rappi": 0.25,
+      "DiDiFood": 0.25
+    },
+    "umbrales": {
+      "erosion_margen_delivery": {
+        "comision_pct_de_ventas": 0.08,
+        "estado": "confirmado como default real, modificable por el usuario en Umbrales"
+      }
+    }
+  },
+  "recetario_referencia": {
+    "nota": "Simplificado para este caso. En producción proviene del input 'Recetas (BOM)' de S1, no de la API de POS.",
+    "productos": [
+      {
+        "item_id": "P-150",
+        "product_name": "Chilaquiles Verdes con Pollo",
+        "precio_menu_subtotal": 150.0,
+        "costo_receta": 40.0
+      },
+      {
+        "item_id": "P-090",
+        "product_name": "Combo Para Llevar",
+        "precio_menu_subtotal": 90.0,
+        "costo_receta": 28.0
+      },
+      {
+        "item_id": "P-301",
+        "product_name": "Pizza Individual Margarita",
+        "precio_menu_subtotal": 160.0,
+        "costo_receta": 45.0
+      }
+    ]
+  },
+  "input": {
+    "negocio_id": "PILOTO-001",
+    "fecha": "2026-08-07",
+    "turnos": [
+      {
+        "turno_id": "T1",
+        "cajero_id": "C-01",
+        "hora_apertura": "07:00",
+        "hora_cierre": "15:00",
+        "shift_data": {
+          "saldo_inicial": 1000.0,
+          "cierre_x_hora": "15:05",
+          "cierre_z_hora": "15:10",
+          "saldo_final_contado": 1696.0
+        },
+        "clock_in_out": [
+          {
+            "empleado_id": "C-01",
+            "clock_in": "06:55",
+            "clock_out": "15:05"
+          }
+        ],
+        "reprints": [],
+        "cancellations": [],
+        "ordenes": [
+          {
+            "order_id": "T1-001",
+            "timestamp": "07:20",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo",
+            "detalle_producto": [
+              {
+                "item_id": "P-150",
+                "product_name": "Chilaquiles Verdes con Pollo",
+                "group": "Alimentos",
+                "subgroup": "Platos Fuertes",
+                "variant_modifier": null,
+                "unit_price": 150.0,
+                "quantity": 1,
+                "item_discount": 0.0
+              }
+            ]
+          },
+          {
+            "order_id": "T1-002",
+            "timestamp": "08:15",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-003",
+            "timestamp": "09:10",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Para llevar",
+            "subtotal": 90.0,
+            "tax": 14.4,
+            "discounts": 0.0,
+            "total_net": 104.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T1-004",
+            "timestamp": "10:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Delivery App",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 0.0,
+            "total_net": 185.6,
+            "forma_de_pago": "UberEats",
+            "detalle_producto": [
+              {
+                "item_id": "P-301",
+                "product_name": "Pizza Individual Margarita",
+                "group": "Alimentos",
+                "subgroup": "Platos Fuertes",
+                "variant_modifier": null,
+                "unit_price": 160.0,
+                "quantity": 1,
+                "item_discount": 0.0
+              }
+            ]
+          },
+          {
+            "order_id": "T1-005",
+            "timestamp": "11:05",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Delivery App",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 0.0,
+            "total_net": 185.6,
+            "forma_de_pago": "UberEats"
+          },
+          {
+            "order_id": "T1-006",
+            "timestamp": "12:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Delivery App",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 0.0,
+            "total_net": 185.6,
+            "forma_de_pago": "Rappi"
+          },
+          {
+            "order_id": "T1-007",
+            "timestamp": "12:45",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-008",
+            "timestamp": "13:30",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-009",
+            "timestamp": "14:20",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Para llevar",
+            "subtotal": 90.0,
+            "tax": 14.4,
+            "discounts": 0.0,
+            "total_net": 104.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          }
+        ]
+      },
+      {
+        "turno_id": "T2",
+        "cajero_id": "C-02",
+        "hora_apertura": "15:00",
+        "hora_cierre": "23:00",
+        "shift_data": {
+          "saldo_inicial": 1000.0,
+          "cierre_x_hora": "23:05",
+          "cierre_z_hora": "23:10",
+          "saldo_final_contado": 1696.0
+        },
+        "clock_in_out": [
+          {
+            "empleado_id": "C-02",
+            "clock_in": "14:55",
+            "clock_out": "23:05"
+          }
+        ],
+        "reprints": [],
+        "cancellations": [],
+        "ordenes": [
+          {
+            "order_id": "T2-001",
+            "timestamp": "15:15",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-002",
+            "timestamp": "16:10",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-003",
+            "timestamp": "17:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Para llevar",
+            "subtotal": 90.0,
+            "tax": 14.4,
+            "discounts": 0.0,
+            "total_net": 104.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T2-004",
+            "timestamp": "18:05",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Delivery App",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 0.0,
+            "total_net": 185.6,
+            "forma_de_pago": "UberEats"
+          },
+          {
+            "order_id": "T2-005",
+            "timestamp": "19:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Delivery App",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 0.0,
+            "total_net": 185.6,
+            "forma_de_pago": "UberEats"
+          },
+          {
+            "order_id": "T2-006",
+            "timestamp": "19:50",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Delivery App",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 0.0,
+            "total_net": 185.6,
+            "forma_de_pago": "Rappi"
+          },
+          {
+            "order_id": "T2-007",
+            "timestamp": "20:40",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-008",
+            "timestamp": "21:30",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-009",
+            "timestamp": "22:15",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Para llevar",
+            "subtotal": 90.0,
+            "tax": 14.4,
+            "discounts": 0.0,
+            "total_net": 104.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          }
+        ]
+      }
+    ],
+    "inventario": {
+      "insumos": [
+        {
+          "insumo": "cafe_grano",
+          "ingredients_usage_kg": 3.5,
+          "waste_recorded_kg": 0.04,
+          "current_stock_kg": 35.0,
+          "unit_cost_mxn_kg": 220.0,
+          "unit_cost_hace_30d_mxn_kg": 220.0
+        }
+      ]
+    },
+    "recetas": [
+      {
+        "id": "P-150",
+        "product_name": "Chilaquiles Verdes con Pollo",
+        "sale_price": 150.0,
+        "ingredients": {
+          "pollo": 0.15,
+          "tortilla": 0.10,
+          "salsa_verde": 0.08
+        }
+      },
+      {
+        "id": "P-090",
+        "product_name": "Combo Para Llevar",
+        "sale_price": 90.0,
+        "ingredients": {
+          "pan_hamburguesa": 0.05,
+          "carne_res": 0.12,
+          "papas": 0.06
+        }
+      },
+      {
+        "id": "P-301",
+        "product_name": "Pizza Individual Margarita",
+        "sale_price": 160.0,
+        "ingredients": {
+          "masa_pizza": 0.08,
+          "queso_mozzarella": 0.12,
+          "salsa_tomate": 0.05
+        }
+      }
+    ]
+  },
+  "esperado_S3": [
+    {
+      "metric": "calc_shift_cash_variance",
+      "turno": "T1",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_shift_cash_variance",
+      "turno": "T2",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_channel_mix",
+      "periodo": "dia",
+      "value": {
+        "Comedor": 0.476,
+        "Para llevar": 0.143,
+        "Delivery App": 0.381
+      },
+      "status": "ok",
+      "detalle": "Base 'total_net'. Delivery (UberEats+Rappi) en 38.1% vs ~15% base — sesgo claro."
+    },
+    {
+      "metric": "calc_delivery_commission_cost",
+      "periodo": "dia",
+      "value": 252.80,
+      "unit": "MXN",
+      "status": "informativo",
+      "detalle": "UberEats: 4 órdenes x $160 subtotal x 27% = $172.80. Rappi: 2 órdenes x $160 x 25% = $80.00."
+    },
+    {
+      "metric": "calc_commission_cost_ratio",
+      "periodo": "dia",
+      "value": 10.03,
+      "status": "warning",
+      "detalle": "252.80 / 2520.00 (ventas base subtotal) = 10.03%, por encima del umbral propuesto de 8%."
+    },
+    {
+      "metric": "calc_contribution_margin",
+      "canal": "Comedor",
+      "value": 0.733,
+      "status": "ok",
+      "detalle": "(1200.00 - 320.00) / 1200.00, sin comisión."
+    },
+    {
+      "metric": "calc_contribution_margin",
+      "canal": "Para llevar",
+      "value": 0.689,
+      "status": "ok",
+      "detalle": "(360.00 - 112.00) / 360.00, sin comisión."
+    },
+    {
+      "metric": "calc_contribution_margin",
+      "canal": "UberEats",
+      "value": 0.449,
+      "status": "warning",
+      "detalle": "(640.00 - 180.00 - 172.80) / 640.00 — 28.4 puntos porcentuales por debajo del margen de Comedor."
+    },
+    {
+      "metric": "calc_contribution_margin",
+      "canal": "Rappi",
+      "value": 0.469,
+      "status": "warning",
+      "detalle": "(320.00 - 90.00 - 80.00) / 320.00 — 26.4 puntos porcentuales por debajo del margen de Comedor."
+    },
+    {
+      "metric": "calc_contribution_margin",
+      "canal": "dia_blended",
+      "value": 0.621,
+      "status": "ok",
+      "detalle": "(2520.00 - 702.00 - 252.80) / 2520.00 — el blended todavía se ve razonable; el problema está escondido en el desglose por canal, no en el promedio."
+    },
+    {
+      "metric": "calc_avg_ticket",
+      "periodo": "dia",
+      "value": 140.0,
+      "status": "ok",
+      "detalle": "Base estandarizada a subtotal (sin IVA) tras decision de diseno: IVA es impuesto de traslado, no ingreso propio. sum(subtotal)=2520.00 / n=18 ordenes = 140.0. (Valor anterior con base total_net: 162.4)"
+    },
+    {
+      "metric": "calc_cancellation_rate",
+      "periodo": "dia",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_reprint_rate",
+      "periodo": "dia",
+      "value": 0.0,
+      "status": "ok"
+    }
+  ],
+  "esperado_hallazgos": [
+    {
+      "flag": "erosion_margen_canal_delivery",
+      "severidad": "warning",
+      "justificacion_corta": "El costo de comisión del día ($252.80) representa 10.0% de las ventas — por encima del umbral propuesto de 8%. El margen de contribución de UberEats (44.9%) y Rappi (46.9%) está entre 26 y 28 puntos porcentuales por debajo del de Comedor (73.3%), aunque el margen promedio del día (62.1%) no lo deja ver a simple vista — el hallazgo solo aparece al desglosar por canal."
+    }
+  ],
+  "esperado_narrativa": null,
+  "revisado_por": null
+}

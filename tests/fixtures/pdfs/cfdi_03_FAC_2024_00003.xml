@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    Version="4.0"
+    Fecha="2024-03-27T12:00:00"
+    Folio="FAC-2024-00003"
+    SubTotal="117.19"
+    Total="135.94"
+    Moneda="MXN"
+    TipoDeComprobante="I">
+  <cfdi:Emisor
+      Nombre="Lácteos del Valle SA"
+      Rfc="LVA190515BBB"
+      RegimenFiscal="601"/>
+  <cfdi:Receptor
+      Nombre="MEPIA Test Business"
+      Rfc="XEXX010101000"
+      UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto
+        Descripcion="Servilletas 1000 pzas"
+        Cantidad="1"
+        ValorUnitario="117.19"
+        Importe="117.19"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="18.75">
+    <cfdi:Traslados>
+      <cfdi:Traslado
+          Impuesto="002"
+          TipoFactor="Tasa"
+          TasaOCuota="0.160000"
+          Importe="18.75"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+</cfdi:Comprobante>

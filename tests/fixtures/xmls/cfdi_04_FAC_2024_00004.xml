@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    Version="4.0"
+    Fecha="2024-01-04T12:00:00"
+    Folio="FAC-2024-00004"
+    SubTotal="294.34"
+    Total="341.43"
+    Moneda="MXN"
+    TipoDeComprobante="I">
+  <cfdi:Emisor
+      Nombre="Lácteos del Valle SA"
+      Rfc="LVA190515BBB"
+      RegimenFiscal="601"/>
+  <cfdi:Receptor
+      Nombre="MEPIA Test Business"
+      Rfc="XEXX010101000"
+      UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto
+        Descripcion="Harina de trigo 25kg"
+        Cantidad="1"
+        ValorUnitario="294.34"
+        Importe="294.34"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="47.09">
+    <cfdi:Traslados>
+      <cfdi:Traslado
+          Impuesto="002"
+          TipoFactor="Tasa"
+          TasaOCuota="0.160000"
+          Importe="47.09"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+</cfdi:Comprobante>

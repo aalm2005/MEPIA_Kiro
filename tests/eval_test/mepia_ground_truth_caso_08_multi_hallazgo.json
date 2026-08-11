@@ -1,0 +1,840 @@
+{
+  "id": "caso_08_multi_hallazgo_revision_ciega",
+  "tipo": "dia_completo_sintetico",
+  "escenario_narrativo": "Combina los Casos 2 + 3 + 6 en un solo día: faltante de caja en T2, patrón de fraude operativo de C-07 en T1, y zona gris de descuentos/cortesías de M-03 en T2. El día más parecido a uno real complicado, con tres señales compitiendo por atención en el mismo reporte.",
+  "anomalias_inyectadas": [
+    {
+      "donde": "turno T1, cajero C-07",
+      "que": "6 reimpresiones sobre 15 tickets propios (40%) + 3 cancelaciones post-comanda",
+      "metrica_que_deberia_dispararse": "calc_reprint_rate y calc_cancellation_rate por responsable — critical"
+    },
+    {
+      "donde": "turno T2, caja compartida",
+      "que": "faltante de caja de $650 MXN",
+      "metrica_que_deberia_dispararse": "calc_shift_cash_variance — critical"
+    },
+    {
+      "donde": "turno T2, mesero M-03",
+      "que": "discount_rate 25.9% y staff_courtesy_ratio 12.4% sobre ventas propias, sin patrón de fraude asociado",
+      "metrica_que_deberia_dispararse": "calc_discount_rate y calc_staff_courtesy_ratio por responsable — warning, tono zona gris"
+    }
+  ],
+  "notas_construccion": [
+    "IMPORTANTE — metodología de revisión ciega, sin completar todavía: yo construí este caso, así que ya conozco las tres anomalías inyectadas — no puedo ser el segundo revisor. Falta el paso real de E-lite: alguien de su equipo debe recibir SOLO el bloque `input` (sin `anomalias_inyectadas`, `esperado_S3`, `esperado_hallazgos`, ni estas notas) y escribir de forma independiente qué hallazgos esperaría, antes de ver lo que yo declaré aquí. Donde coincidan, ground truth confiable. Donde no, es información útil sobre ambigüedad real.",
+    "HALLAZGO AL COMBINAR LOS TRES CASOS: discount_rate y staff_courtesy_ratio de M-03 se diluyen por debajo de su umbral cuando se miden a nivel día completo (el resto del volumen del día, limpio, los tapa) — 6.1% y 2.4% respectivamente, ambos 'ok' en agregado. reprint_rate y cancelación post-comanda de C-07 NO se diluyen — siguen críticos incluso a nivel día (14.3% y 6.7%). Esto no es un accidente de construcción: dice que para las señales de zona gris, la vista por responsable no es opcional, es la única forma de detectarlas. Para las señales de fraude más extremas, el agregado ya alcanza a verse mal, pero sigue sin decir quién.",
+    "PRIORIDAD DE HALLAZGOS DESACTUALIZADA: el documento de escenarios dice 'control operativo > deducibilidad > conciliación > estadística' — esa jerarquía viene del diseño anterior orientado a PLD/RESICO. 'Deducibilidad' ya no existe en este motor. Propongo actualizar a: (1) patrones de posible fraude/mala conducta deliberada [C-07] — mayor exposición, (2) fallas de conciliación de caja con pérdida cuantificada [T2] — segunda, (3) fuga de margen en zona gris sin evidencia de mala fe [M-03] — menor urgencia, tono de coaching, no acusación. Es una propuesta mía, pendiente de que el equipo la confirme o la ajuste — igual que los demás umbrales nuevos de esta sesión.",
+    "T1 y T2 comparten una sola caja/shift_data por turno, con dos responsables de venta distintos cada uno (C-07+C-10 en T1, M-03+M-04 en T2) — el faltante de caja de T2 es un problema del turno, no se le atribuye a M-03 específicamente solo por estar en ese turno.",
+    "Volumen reducido respecto a un día real (42 órdenes vs. ~150) — mismo criterio de todos los casos anteriores.",
+    "PRIORIDAD CONFIRMADA por el usuario: fraude > conciliación de caja > zona gris > estadística. Nota explícita del usuario al confirmar: los patrones de fraude probablemente sean poco frecuentes en la operación real, pero cuando aparecen deben ir primero de todas formas — es baja frecuencia, alta severidad, no baja prioridad.",
+    "RESULTADO DE LA REVISIÓN CIEGA (ejecutada): coincidencia total en las 3 prioridades y severidades. Dos divergencias reales, ambas corregidas: (1) base de cálculo de staff_courtesy_ratio no estaba definida sin ambigüedad — corregido a subtotal, documentado en mepia_v4_metricas_diseno.md. (2) el tono \"sin evidencia de fraude\" para M-03 era más categórico de lo que los datos permiten sostener — la IA revisora señaló, sin que se le diera esa pista, que efectivo+descuento es un vector real de riesgo. Ajustado el framing esperado."
+  ],
+  "config_negocio": {
+    "multi_sucursal": false,
+    "umbrales": {
+      "reprint_rate": {
+        "umbral_unico": 0.03
+      },
+      "cancelacion": {
+        "post_comanda": "cualquier caso ya es flag"
+      },
+      "cash_variance": {
+        "flag_pct": 0.01,
+        "flag_piso_mxn": 100.0,
+        "critical_pct": 0.03,
+        "critical_piso_mxn": 500.0
+      },
+      "discount_rate": {
+        "umbral_unico": 0.1
+      },
+      "staff_courtesy_ratio": {
+        "umbral_unico": 0.03
+      }
+    }
+  },
+  "input": {
+    "negocio_id": "PILOTO-001",
+    "fecha": "2026-08-12",
+    "turnos": [
+      {
+        "turno_id": "T1",
+        "hora_apertura": "07:00",
+        "hora_cierre": "15:00",
+        "shift_data": {
+          "saldo_inicial": 1000.0,
+          "cierre_x_hora": "15:05",
+          "cierre_z_hora": "15:10",
+          "saldo_final_contado": 3320.0
+        },
+        "clock_in_out": [
+          {
+            "empleado_id": "C-07",
+            "clock_in": "06:55",
+            "clock_out": "15:05"
+          },
+          {
+            "empleado_id": "C-10",
+            "clock_in": "06:55",
+            "clock_out": "15:05"
+          }
+        ],
+        "reprints": [
+          {
+            "order_id": "T1-002",
+            "hora": "07:22",
+            "responsable": "C-07"
+          },
+          {
+            "order_id": "T1-004",
+            "hora": "08:12",
+            "responsable": "C-07"
+          },
+          {
+            "order_id": "T1-006",
+            "hora": "08:52",
+            "responsable": "C-07"
+          },
+          {
+            "order_id": "T1-008",
+            "hora": "09:52",
+            "responsable": "C-07"
+          },
+          {
+            "order_id": "T1-010",
+            "hora": "10:42",
+            "responsable": "C-07"
+          },
+          {
+            "order_id": "T1-012",
+            "hora": "11:52",
+            "responsable": "C-07"
+          }
+        ],
+        "cancellations": [
+          {
+            "cancel_id": "T1-CANC-01",
+            "hora": "07:35",
+            "responsable": "C-07",
+            "motivo": "error de captura",
+            "momento": "post-comanda",
+            "monto_estimado": 174.0
+          },
+          {
+            "cancel_id": "T1-CANC-02",
+            "hora": "09:10",
+            "responsable": "C-07",
+            "motivo": "error de captura",
+            "momento": "post-comanda",
+            "monto_estimado": 174.0
+          },
+          {
+            "cancel_id": "T1-CANC-03",
+            "hora": "11:00",
+            "responsable": "C-07",
+            "motivo": "error de captura",
+            "momento": "post-comanda",
+            "monto_estimado": 174.0
+          }
+        ],
+        "ordenes": [
+          {
+            "order_id": "T1-001",
+            "timestamp": "07:05",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo",
+            "detalle_producto": [
+              {
+                "item_id": "P-150",
+                "product_name": "Chilaquiles Verdes con Pollo",
+                "group": "Alimentos",
+                "subgroup": "Platos Fuertes",
+                "variant_modifier": null,
+                "unit_price": 150.0,
+                "quantity": 1,
+                "item_discount": 0.0
+              }
+            ]
+          },
+          {
+            "order_id": "T1-002",
+            "timestamp": "07:20",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-003",
+            "timestamp": "07:50",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Para llevar",
+            "subtotal": 90.0,
+            "tax": 14.4,
+            "discounts": 0.0,
+            "total_net": 104.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T1-004",
+            "timestamp": "08:10",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-005",
+            "timestamp": "08:30",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Delivery App",
+            "subtotal": 130.0,
+            "tax": 20.8,
+            "discounts": 0.0,
+            "total_net": 150.8,
+            "forma_de_pago": "UberEats"
+          },
+          {
+            "order_id": "T1-006",
+            "timestamp": "08:50",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-007",
+            "timestamp": "09:30",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Para llevar",
+            "subtotal": 90.0,
+            "tax": 14.4,
+            "discounts": 0.0,
+            "total_net": 104.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T1-008",
+            "timestamp": "09:50",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-009",
+            "timestamp": "10:15",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Delivery App",
+            "subtotal": 130.0,
+            "tax": 20.8,
+            "discounts": 0.0,
+            "total_net": 150.8,
+            "forma_de_pago": "Rappi"
+          },
+          {
+            "order_id": "T1-010",
+            "timestamp": "10:40",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-011",
+            "timestamp": "11:25",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Para llevar",
+            "subtotal": 90.0,
+            "tax": 14.4,
+            "discounts": 0.0,
+            "total_net": 104.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T1-012",
+            "timestamp": "11:50",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-013",
+            "timestamp": "12:15",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Delivery App",
+            "subtotal": 130.0,
+            "tax": 20.8,
+            "discounts": 0.0,
+            "total_net": 150.8,
+            "forma_de_pago": "UberEats"
+          },
+          {
+            "order_id": "T1-014",
+            "timestamp": "12:45",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Para llevar",
+            "subtotal": 90.0,
+            "tax": 14.4,
+            "discounts": 0.0,
+            "total_net": 104.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T1-015",
+            "timestamp": "13:10",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-07",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-016",
+            "timestamp": "10:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-10",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 0.0,
+            "total_net": 185.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-017",
+            "timestamp": "10:30",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-10",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 0.0,
+            "total_net": 185.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-018",
+            "timestamp": "11:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-10",
+            "order_type": "Para llevar",
+            "subtotal": 85.0,
+            "tax": 13.6,
+            "discounts": 0.0,
+            "total_net": 98.6,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T1-019",
+            "timestamp": "11:40",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-10",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 0.0,
+            "total_net": 185.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-020",
+            "timestamp": "12:20",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-10",
+            "order_type": "Delivery App",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "DiDiFood"
+          },
+          {
+            "order_id": "T1-021",
+            "timestamp": "13:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-10",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 0.0,
+            "total_net": 185.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-022",
+            "timestamp": "13:40",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-10",
+            "order_type": "Para llevar",
+            "subtotal": 85.0,
+            "tax": 13.6,
+            "discounts": 0.0,
+            "total_net": 98.6,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T1-023",
+            "timestamp": "14:10",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-10",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 0.0,
+            "total_net": 185.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-024",
+            "timestamp": "14:35",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-10",
+            "order_type": "Para llevar",
+            "subtotal": 85.0,
+            "tax": 13.6,
+            "discounts": 0.0,
+            "total_net": 98.6,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T1-025",
+            "timestamp": "14:50",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-10",
+            "order_type": "Delivery App",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Rappi"
+          }
+        ]
+      },
+      {
+        "turno_id": "T2",
+        "hora_apertura": "15:00",
+        "hora_cierre": "23:00",
+        "shift_data": {
+          "saldo_inicial": 1000.0,
+          "cierre_x_hora": "23:05",
+          "cierre_z_hora": "23:10",
+          "saldo_final_contado": 2064.8
+        },
+        "clock_in_out": [
+          {
+            "empleado_id": "M-03",
+            "clock_in": "14:55",
+            "clock_out": "23:05"
+          },
+          {
+            "empleado_id": "M-04",
+            "clock_in": "14:55",
+            "clock_out": "23:05"
+          }
+        ],
+        "reprints": [],
+        "cancellations": [],
+        "ordenes": [
+          {
+            "order_id": "T2-001",
+            "timestamp": "15:20",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-002",
+            "timestamp": "16:10",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-003",
+            "timestamp": "17:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo",
+            "detalle_producto": [
+              {
+                "item_id": "P-150",
+                "product_name": "Chilaquiles Verdes con Pollo",
+                "group": "Alimentos",
+                "subgroup": "Platos Fuertes",
+                "variant_modifier": null,
+                "unit_price": 140.0,
+                "quantity": 1,
+                "item_discount": 0.0
+              }
+            ]
+          },
+          {
+            "order_id": "T2-004",
+            "timestamp": "17:45",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 70.0,
+            "total_net": 115.6,
+            "forma_de_pago": "Efectivo",
+            "detalle_producto": [
+              {
+                "item_id": "P-301",
+                "product_name": "Pizza Individual Margarita",
+                "group": "Alimentos",
+                "subgroup": "Platos Fuertes",
+                "variant_modifier": "descuento aplicado por mesero",
+                "unit_price": 160.0,
+                "quantity": 1,
+                "item_discount": 70.0
+              }
+            ]
+          },
+          {
+            "order_id": "T2-005",
+            "timestamp": "18:30",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 70.0,
+            "total_net": 115.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-006",
+            "timestamp": "19:15",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 70.0,
+            "total_net": 115.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-007",
+            "timestamp": "20:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 70.0,
+            "total_net": 115.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-008",
+            "timestamp": "20:45",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 70.0,
+            "total_net": 115.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-009",
+            "timestamp": "21:30",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 130.0,
+            "tax": 20.8,
+            "discounts": 0.0,
+            "total_net": 150.8,
+            "forma_de_pago": "Cortesía_Staff",
+            "monto_cobrado": 0.0,
+            "valor_cortesia": 150.8
+          },
+          {
+            "order_id": "T2-010",
+            "timestamp": "15:35",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-011",
+            "timestamp": "16:25",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-012",
+            "timestamp": "17:20",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-013",
+            "timestamp": "18:15",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-014",
+            "timestamp": "19:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T2-015",
+            "timestamp": "19:50",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T2-016",
+            "timestamp": "20:40",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T2-017",
+            "timestamp": "21:50",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          }
+        ]
+      }
+    ],
+    "inventario": {
+      "insumos": [
+        {
+          "insumo": "cafe_grano",
+          "ingredients_usage_kg": 6.5,
+          "waste_recorded_kg": 0.08,
+          "current_stock_kg": 45.0,
+          "unit_cost_mxn_kg": 220.0,
+          "unit_cost_hace_30d_mxn_kg": 220.0
+        }
+      ]
+    }
+  },
+  "esperado_S3": [
+    {
+      "metric": "calc_shift_cash_variance",
+      "turno": "T1",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_shift_cash_variance",
+      "turno": "T2",
+      "value": -650.0,
+      "status": "critical",
+      "detalle": "650 / 1714.80 efectivo T2 = 37.9%, muy por encima del piso crítico de $500."
+    },
+    {
+      "metric": "calc_reprint_rate",
+      "nivel": "dia_agregado",
+      "value": 0.143,
+      "status": "critical"
+    },
+    {
+      "metric": "calc_reprint_rate",
+      "nivel": "por_responsable",
+      "responsable": "C-07",
+      "value": 0.4,
+      "status": "critical"
+    },
+    {
+      "metric": "calc_cancellation_rate",
+      "tipo": "post_comanda",
+      "nivel": "dia_agregado",
+      "value": 0.067,
+      "status": "critical"
+    },
+    {
+      "metric": "calc_cancellation_rate",
+      "tipo": "post_comanda",
+      "nivel": "por_responsable",
+      "responsable": "C-07",
+      "value": 0.167,
+      "status": "critical"
+    },
+    {
+      "metric": "calc_discount_rate",
+      "nivel": "dia_agregado",
+      "value": 0.0608,
+      "status": "ok",
+      "detalle": "350.00 / 5755.00 = 6.1% — DILUIDO por debajo del umbral de 10% al mezclarse con el resto del día limpio."
+    },
+    {
+      "metric": "calc_discount_rate",
+      "nivel": "por_responsable",
+      "responsable": "M-03",
+      "value": 0.2593,
+      "status": "warning",
+      "detalle": "350.00 / 1350.00 propios — el problema real, invisible en el agregado."
+    },
+    {
+      "metric": "calc_staff_courtesy_ratio",
+      "nivel": "dia_agregado",
+      "value": 0.0226,
+      "status": "ok",
+      "detalle": "130.00 (subtotal cortesía) / 5755.00 (subtotal día) = 2.26% — CORREGIDO tras revisión ciega, sigue diluido bajo el umbral de 3%."
+    },
+    {
+      "metric": "calc_staff_courtesy_ratio",
+      "nivel": "por_responsable",
+      "responsable": "M-03",
+      "value": 0.0963,
+      "status": "warning",
+      "detalle": "130.00 / 1350.00 propios = 9.63%. CORREGIDO — coincide EXACTO con lo que calculó la IA revisora de forma independiente (9.63%), una vez usando la misma base."
+    },
+    {
+      "metric": "calc_avg_ticket",
+      "periodo": "dia",
+      "value": 150.61,
+      "status": "ok"
+    },
+    {
+      "metric": "check_price_inflation",
+      "insumo": "cafe_grano",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_stock_days_remaining",
+      "insumo": "cafe_grano",
+      "value": 6.9,
+      "status": "ok"
+    }
+  ],
+  "esperado_narrativa": null,
+  "revisado_por": null,
+  "esperado_hallazgos": [
+    {
+      "prioridad": 1,
+      "flag": "patron_fraude_operativo",
+      "responsable": "C-07",
+      "severidad": "critical",
+      "justificacion_corta": "40% de reimpresión + 3 cancelaciones post-comanda concentradas en un solo responsable, con motivo repetido sospechoso — mayor exposición porque implica posible mala conducta deliberada, no solo error."
+    },
+    {
+      "prioridad": 2,
+      "flag": "faltante_de_caja",
+      "turno": "T2",
+      "severidad": "critical",
+      "justificacion_corta": "$650 de faltante, pérdida financiera directa y cuantificada — segunda prioridad porque es grave pero no necesariamente implica mala fe de una persona específica."
+    },
+    {
+      "prioridad": 3,
+      "flag": "descuentos_cortesias_concentrados",
+      "responsable": "M-03",
+      "severidad": "warning",
+      "justificacion_corta": "Fuga de margen real (25.9% descuento, 9.63% cortesía sobre ventas propias, base subtotal) — muy por encima del agregado del día. MATIZ tras revisión ciega: mi framing original decía \"sin evidencia de fraude, tono no acusatorio\". La IA revisora, viendo los mismos datos crudos, señaló que los 5 descuentos se aplicaron consecutivamente a pagos en EFECTIVO — un vector real de posible fraude (cobrar completo, registrar descuento, quedarse con la diferencia), aunque sin el patrón de motivo-repetido que sí tiene C-07. Conclusión: no se puede afirmar \"sin evidencia de fraude\" como un hecho — solo se puede decir que no tiene el mismo patrón de mala fe explícita que C-07. El tono correcto es \"amerita revisión, no descartar\", no \"definitivamente inocente\"."
+    }
+  ]
+}

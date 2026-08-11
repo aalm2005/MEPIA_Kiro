@@ -58,6 +58,10 @@ frases directas y pragmáticas. El input siempre es el `ForensicReport` completo
 
 ### Uso de `observed_causality`
 
+> **NOTA:** `observed_causality` queda como `null` siempre a partir del retiro de `daily_context`.
+> La lógica de ajuste de tono se mantiene documentada por si se reintroduce una fuente de
+> causalidad contextual en el futuro, pero actualmente no tiene efecto.
+
 N05 lee el campo `observed_causality` del `ForensicReport` para decidir el tono de la
 `copilot_phrase`. Si hay causalidad contextual (ej. `falla_maquina`), N05 puede redactar
 una recomendación más comprensiva — pero **nunca omite la anomalía**.

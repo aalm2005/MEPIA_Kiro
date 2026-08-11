@@ -46,9 +46,10 @@ Recibe `Layer2RunPayload` desde N06. Usa directamente:
 business_id: UUID
 date: date
 sequential_context.calc_results    # CalcResult[] de S3
-sequential_context.context_tags    # ContextTags del día
 archetype                          # para generar copilot_phrase
 ```
+
+> **Nota:** `sequential_context.context_tags` (daily_context) fue retirado — ya no se recibe ni se usa.
 
 Además consulta Supabase directamente para las heurísticas:
 - `businesses.opening_date` — para ciclo de vida

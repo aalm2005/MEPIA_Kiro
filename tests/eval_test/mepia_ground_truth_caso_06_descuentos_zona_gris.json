@@ -1,0 +1,423 @@
+{
+  "id": "caso_06_descuentos_zona_gris",
+  "tipo": "dia_completo_sintetico",
+  "escenario_narrativo": "Cortesías y descuentos del día superan lo normal, concentrados en el mesero M-03. A diferencia del Caso 3, aquí no hay evidencia de fraude — solo un patrón a vigilar. Prueba si el sistema distingue 'zona gris' de 'fraude probable' en el tono del reporte.",
+  "anomalias_inyectadas": [
+    {
+      "donde": "día completo, concentrado en mesero M-03",
+      "que": "discount_rate = 14.2% (umbral 10%)",
+      "metrica_que_deberia_dispararse": "calc_discount_rate — warning"
+    },
+    {
+      "donde": "día completo, concentrado en mesero M-03",
+      "que": "staff_courtesy_ratio = 6.0% (umbral sugerido 3%)",
+      "metrica_que_deberia_dispararse": "calc_staff_courtesy_ratio — warning"
+    }
+  ],
+  "notas_construccion": [
+    "HALLAZGO DE DISEÑO (tercera vez que aparece — ya no es casualidad, hay que generalizarlo): calc_discount_rate y calc_staff_courtesy_ratio, tal como quedaron en la Tarea 3 del prompt de Kiro, NO tienen desagregación por responsable — mismo problema que ya se corrigió para calc_cancellation_rate y calc_reprint_rate en el Caso 3. Este caso depende de esa desagregación para poder decir 'concentrado en M-03', igual que el Caso 3 dependía de ella para cajero C-07. Recomendación: en vez de seguir parchando función por función cada vez que aparece, convertir 'por responsable' en una dimensión estándar disponible para cualquier métrica Tipo B que lo amerite, no una excepción que se agrega caso por caso.",
+    "Umbral de staff_courtesy_ratio (3%) sigue siendo una estimación mía, no un benchmark verificado — a diferencia de discount_rate (10%), que sí coincide con lo que reporta la industria (RestaurantOwner.com usa >10% de ventas brutas como el punto donde el descuento se vuelve 'significativo'). Las fuentes sobre cortesías/comps específicamente dicen que no hay un número único de industria — dejar como estimación razonable, no como dato confirmado.",
+    "Cortesía y descuento se modelan como categorías separadas: descuento reduce el monto cobrado en una orden que sí se paga; cortesía es una orden que no se cobra en absoluto (monto_cobrado=0). No deben sumarse en la misma métrica.",
+    "M-04 (turno 2) se dejó completamente limpio, mismo patrón de control que C-08 en el Caso 3.",
+    "CORRECCIÓN POST REVISIÓN CIEGA: staff_courtesy_ratio se recalculó usando subtotal como base en vez de total_net. La base anterior (total_net) ya traía restado el descuento de las otras órdenes de M-03, lo que inflaba artificialmente el ratio de cortesía. Encontrado por una segunda IA en revisión ciega del Caso 8, aplicado retroactivamente aquí."
+  ],
+  "config_negocio": {
+    "multi_sucursal": false,
+    "umbrales": {
+      "discount_rate": {
+        "umbral_unico": 0.1,
+        "fuente": "RestaurantOwner.com — >10% de ventas brutas es el punto donde el descuento se considera significativo en la industria"
+      },
+      "staff_courtesy_ratio": {
+        "umbral_unico": 0.03,
+        "fuente": "estimación propia, sin benchmark de industria verificado — revisar — Base de cálculo CORREGIDA tras revisión ciega (2026): usar subtotal (sin IVA, sin descuentos de otras órdenes) como denominador, no total_net, para evitar que una anomalía distorsione la medición de otra."
+      }
+    }
+  },
+  "input": {
+    "negocio_id": "PILOTO-001",
+    "fecha": "2026-08-09",
+    "turnos": [
+      {
+        "turno_id": "T1",
+        "cajero_id": "M-03",
+        "hora_apertura": "07:00",
+        "hora_cierre": "15:00",
+        "shift_data": {
+          "saldo_inicial": 1000.0,
+          "cierre_x_hora": "15:05",
+          "cierre_z_hora": "15:10",
+          "saldo_final_contado": 2065.2
+        },
+        "clock_in_out": [
+          {
+            "empleado_id": "M-03",
+            "clock_in": "06:55",
+            "clock_out": "15:05"
+          }
+        ],
+        "reprints": [],
+        "cancellations": [],
+        "ordenes": [
+          {
+            "order_id": "T1-001",
+            "timestamp": "07:20",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-002",
+            "timestamp": "08:10",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-003",
+            "timestamp": "09:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo",
+            "detalle_producto": [
+              {
+                "item_id": "P-150",
+                "product_name": "Chilaquiles Verdes con Pollo",
+                "group": "Alimentos",
+                "subgroup": "Platos Fuertes",
+                "variant_modifier": null,
+                "unit_price": 140.0,
+                "quantity": 1,
+                "item_discount": 0.0
+              }
+            ]
+          },
+          {
+            "order_id": "T1-004",
+            "timestamp": "09:45",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 70.0,
+            "total_net": 115.6,
+            "forma_de_pago": "Efectivo",
+            "detalle_producto": [
+              {
+                "item_id": "P-301",
+                "product_name": "Pizza Individual Margarita",
+                "group": "Alimentos",
+                "subgroup": "Platos Fuertes",
+                "variant_modifier": "descuento aplicado por mesero",
+                "unit_price": 160.0,
+                "quantity": 1,
+                "item_discount": 70.0
+              }
+            ]
+          },
+          {
+            "order_id": "T1-005",
+            "timestamp": "10:30",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 70.0,
+            "total_net": 115.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-006",
+            "timestamp": "11:15",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 70.0,
+            "total_net": 115.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-007",
+            "timestamp": "12:20",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 70.0,
+            "total_net": 115.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-008",
+            "timestamp": "13:10",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 160.0,
+            "tax": 25.6,
+            "discounts": 70.0,
+            "total_net": 115.6,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-009",
+            "timestamp": "14:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-03",
+            "order_type": "Comedor",
+            "subtotal": 130.0,
+            "tax": 20.8,
+            "discounts": 0.0,
+            "total_net": 150.8,
+            "forma_de_pago": "Cortesía_Staff",
+            "monto_cobrado": 0.0,
+            "valor_cortesia": 150.8
+          }
+        ]
+      },
+      {
+        "turno_id": "T2",
+        "cajero_id": "M-04",
+        "hora_apertura": "15:00",
+        "hora_cierre": "23:00",
+        "shift_data": {
+          "saldo_inicial": 1000.0,
+          "cierre_x_hora": "23:05",
+          "cierre_z_hora": "23:10",
+          "saldo_final_contado": 1649.6
+        },
+        "clock_in_out": [
+          {
+            "empleado_id": "M-04",
+            "clock_in": "14:55",
+            "clock_out": "23:05"
+          }
+        ],
+        "reprints": [],
+        "cancellations": [],
+        "ordenes": [
+          {
+            "order_id": "T2-001",
+            "timestamp": "15:15",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-002",
+            "timestamp": "16:10",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-003",
+            "timestamp": "17:05",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-004",
+            "timestamp": "18:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-005",
+            "timestamp": "19:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T2-006",
+            "timestamp": "20:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T2-007",
+            "timestamp": "21:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T2-008",
+            "timestamp": "22:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "M-04",
+            "order_type": "Comedor",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Tarjeta_Clip"
+          }
+        ]
+      }
+    ],
+    "inventario": {
+      "insumos": [
+        {
+          "insumo": "cafe_grano",
+          "ingredients_usage_kg": 3.5,
+          "waste_recorded_kg": 0.04,
+          "current_stock_kg": 35.0,
+          "unit_cost_mxn_kg": 220.0,
+          "unit_cost_hace_30d_mxn_kg": 220.0
+        }
+      ]
+    }
+  },
+  "esperado_S3": [
+    {
+      "metric": "calc_shift_cash_variance",
+      "turno": "T1",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_shift_cash_variance",
+      "turno": "T2",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_discount_rate",
+      "nivel": "dia_agregado",
+      "value": 0.1417,
+      "status": "warning",
+      "detalle": "350.00 / 2470.00 = 14.2%, por encima del umbral de 10%."
+    },
+    {
+      "metric": "calc_discount_rate",
+      "nivel": "por_responsable",
+      "responsable": "M-03",
+      "value": 0.2593,
+      "status": "warning",
+      "detalle": "350.00 / 1350.00 propios — la concentración real es más del doble del agregado del día."
+    },
+    {
+      "metric": "calc_discount_rate",
+      "nivel": "por_responsable",
+      "responsable": "M-04",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_staff_courtesy_ratio",
+      "nivel": "dia_agregado",
+      "value": 0.0526,
+      "status": "warning",
+      "detalle": "130.00 (subtotal cortesía) / 2470.00 (subtotal día) = 5.26%, por encima del umbral de 3%. CORREGIDO tras revisión ciega: antes se usaba total_net como base, lo cual se inflaba por el descuento simultáneo de las otras órdenes."
+    },
+    {
+      "metric": "calc_staff_courtesy_ratio",
+      "nivel": "por_responsable",
+      "responsable": "M-03",
+      "value": 0.0963,
+      "status": "warning",
+      "detalle": "130.00 / 1350.00 propios = 9.63%. CORREGIDO — antes 12.4% usando total_net como base."
+    },
+    {
+      "metric": "calc_staff_courtesy_ratio",
+      "nivel": "por_responsable",
+      "responsable": "M-04",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_avg_ticket",
+      "periodo": "dia",
+      "value": 145.91,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_cancellation_rate",
+      "periodo": "dia",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_reprint_rate",
+      "periodo": "dia",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "check_price_inflation",
+      "insumo": "cafe_grano",
+      "value": 0.0,
+      "status": "ok"
+    }
+  ],
+  "esperado_hallazgos": [
+    {
+      "flag": "descuentos_cortesias_concentrados",
+      "responsable": "M-03",
+      "severidad": "warning",
+      "justificacion_corta": "M-03 concentra una tasa de descuento de 25.9% y una tasa de cortesía de 9.6% sobre sus propias ventas — muy por encima del agregado del día. Fuga de margen real, pero SIN patrón de motivo sospechoso repetido ni cancelaciones asociadas (a diferencia del Caso 3). El tono del hallazgo debe ser 'patrón a revisar con M-03', no 'evidencia de fraude' — es la distinción que este caso está diseñado para probar."
+    }
+  ],
+  "esperado_narrativa": null,
+  "revisado_por": null
+}

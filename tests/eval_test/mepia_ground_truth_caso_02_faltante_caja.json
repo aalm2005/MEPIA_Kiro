@@ -1,0 +1,147 @@
+{
+  "id": "caso_02_faltante_caja",
+  "tipo": "dia_completo_sintetico",
+  "escenario_narrativo": "El turno de tarde cierra con un faltante de caja significativo. El resto del día es normal — sirve para probar que calc_shift_cash_variance aísla correctamente el problema al turno 2 sin contaminar el turno 1.",
+
+  "anomalias_inyectadas": [
+    {
+      "donde": "turno T2, cierre de caja",
+      "que": "saldo_final_contado $650.00 MXN por debajo del esperado (apertura + ventas en efectivo del turno)",
+      "metrica_que_deberia_dispararse": "calc_shift_cash_variance"
+    }
+  ],
+
+  "notas_construccion": [
+    "Este caso usa 17 órdenes en vez de las ~150 de un día real completo, para mantener el JSON legible como plantilla técnica. El comportamiento aritmético de calc_shift_cash_variance es idéntico sin importar el volumen de órdenes — solo importa el total agregado de efectivo por turno.",
+    "Por la misma razón, los montos por orden son más altos que el ticket promedio de referencia del proyecto (~$185 MXN). No usar el ticket promedio de este caso como benchmark realista de negocio.",
+    "El detalle de producto (Nivel 2) solo se muestra completo en 2 órdenes de ejemplo (orden 1 y orden 9) para establecer el formato. En producción, todas las órdenes tienen este detalle completo — se omitió aquí por brevedad porque no afecta el resultado esperado de este caso.",
+    "Se asume que cada turno abre con un saldo base fijo de $1,000 MXN (política de caja chica estándar), no que el turno 2 hereda el cierre del turno 1. Si el negocio piloto real maneja otra política (ej. una sola caja continua entre turnos), este supuesto debe ajustarse antes de usar este caso como ground truth real.",
+    "AMBIGÜEDAD DE UMBRAL DETECTADA: la regla de materialidad original combina un % de ventas y un piso fijo en pesos sin especificar si el umbral efectivo es 'cualquiera de los dos dispara' (OR) o 'el mayor de los dos' (piso que sube la barra). El monto inyectado ($650) se eligió para ser crítico bajo cualquiera de las dos lecturas — ver mepia_v4_metricas_diseno.md, pendiente de resolver formalmente.",
+    "No existe en el schema de la API un campo explícito de 'gastos pagados en efectivo desde caja' — a diferencia del diseño anterior orientado a PLD/RESICO. Este caso asume que el cierre esperado = apertura + ventas en efectivo del turno, sin restar gastos, porque el nuevo contrato de datos no lo contempla. Si en producción sí existen gastos pagados desde caja, este cálculo necesita un campo adicional que hoy no está en el schema de 5 niveles."
+  ],
+
+  "config_negocio": {
+    "multi_sucursal": false,
+    "comisiones_delivery": { "UberEats": 0.27, "Rappi": 0.25, "DiDiFood": 0.25 },
+    "umbrales": {
+      "cash_variance": {
+        "flag_pct": 0.01,
+        "flag_piso_mxn": 100.00,
+        "critical_pct": 0.03,
+        "critical_piso_mxn": 500.00,
+        "regla_aplicada_en_este_caso": "max(pct_del_umbral, piso_fijo) — ver ambigüedad en notas_construccion"
+      }
+    }
+  },
+
+  "input": {
+    "negocio_id": "PILOTO-001",
+    "fecha": "2026-08-10",
+    "turnos": [
+      {
+        "turno_id": "T1",
+        "cajero_id": "C-01",
+        "hora_apertura": "07:00",
+        "hora_cierre": "15:00",
+        "shift_data": {
+          "saldo_inicial": 1000.00,
+          "cierre_x_hora": "15:05",
+          "cierre_z_hora": "15:10",
+          "saldo_final_contado": 1643.80
+        },
+        "clock_in_out": [
+          { "empleado_id": "C-01", "clock_in": "06:55", "clock_out": "15:05" }
+        ],
+        "cancellations": [],
+        "reprints": [],
+        "ordenes": [
+          {
+            "order_id": "T1-001", "timestamp": "07:15", "sucursal_id": "SUC-01",
+            "cajero_id": "C-01", "order_type": "Comedor",
+            "subtotal": 150.00, "tax": 24.00, "discounts": 0.00, "total_net": 174.00,
+            "forma_de_pago": "Efectivo",
+            "detalle_producto": [
+              { "item_id": "P-101", "product_name": "Café Americano Grande", "group": "Bebidas", "subgroup": "Métodos Filtrados", "variant_modifier": "leche entera", "unit_price": 55.00, "quantity": 2, "item_discount": 0.00 },
+              { "item_id": "P-205", "product_name": "Croissant de Jamón y Queso", "group": "Alimentos", "subgroup": "Panadería Salada", "variant_modifier": null, "unit_price": 40.00, "quantity": 1, "item_discount": 0.00 }
+            ]
+          },
+          { "order_id": "T1-002", "timestamp": "08:00", "sucursal_id": "SUC-01", "cajero_id": "C-01", "order_type": "Para llevar", "subtotal": 80.00, "tax": 12.80, "discounts": 0.00, "total_net": 92.80, "forma_de_pago": "Tarjeta_Clip" },
+          { "order_id": "T1-003", "timestamp": "09:10", "sucursal_id": "SUC-01", "cajero_id": "C-01", "order_type": "Comedor", "subtotal": 220.00, "tax": 35.20, "discounts": 10.00, "total_net": 245.20, "forma_de_pago": "Tarjeta_Clip" },
+          { "order_id": "T1-004", "timestamp": "10:05", "sucursal_id": "SUC-01", "cajero_id": "C-01", "order_type": "Delivery App", "subtotal": 180.00, "tax": 28.80, "discounts": 0.00, "total_net": 208.80, "forma_de_pago": "UberEats" },
+          { "order_id": "T1-005", "timestamp": "11:30", "sucursal_id": "SUC-01", "cajero_id": "C-01", "order_type": "Comedor", "subtotal": 310.00, "tax": 49.60, "discounts": 0.00, "total_net": 359.60, "forma_de_pago": "Efectivo" },
+          { "order_id": "T1-006", "timestamp": "12:15", "sucursal_id": "SUC-01", "cajero_id": "C-01", "order_type": "Para llevar", "subtotal": 95.00, "tax": 15.20, "discounts": 0.00, "total_net": 110.20, "forma_de_pago": "Efectivo" },
+          { "order_id": "T1-007", "timestamp": "13:00", "sucursal_id": "SUC-01", "cajero_id": "C-01", "order_type": "Comedor", "subtotal": 260.00, "tax": 41.60, "discounts": 0.00, "total_net": 301.60, "forma_de_pago": "Tarjetas_Lealtad" },
+          { "order_id": "T1-008", "timestamp": "14:20", "sucursal_id": "SUC-01", "cajero_id": "C-01", "order_type": "Delivery App", "subtotal": 140.00, "tax": 22.40, "discounts": 0.00, "total_net": 162.40, "forma_de_pago": "Rappi" }
+        ]
+      },
+      {
+        "turno_id": "T2",
+        "cajero_id": "C-02",
+        "hora_apertura": "15:00",
+        "hora_cierre": "23:00",
+        "shift_data": {
+          "saldo_inicial": 1000.00,
+          "cierre_x_hora": "23:05",
+          "cierre_z_hora": "23:10",
+          "saldo_final_contado": 3350.00
+        },
+        "clock_in_out": [
+          { "empleado_id": "C-02", "clock_in": "14:55", "clock_out": "23:05" }
+        ],
+        "cancellations": [],
+        "reprints": [],
+        "ordenes": [
+          {
+            "order_id": "T2-001", "timestamp": "15:30", "sucursal_id": "SUC-01",
+            "cajero_id": "C-02", "order_type": "Comedor",
+            "subtotal": 603.45, "tax": 96.55, "discounts": 0.00, "total_net": 700.00,
+            "forma_de_pago": "Efectivo",
+            "detalle_producto": [
+              { "item_id": "P-301", "product_name": "Pizza Familiar Especial", "group": "Alimentos", "subgroup": "Platos Fuertes", "variant_modifier": "extra queso", "unit_price": 320.00, "quantity": 1, "item_discount": 0.00 },
+              { "item_id": "P-402", "product_name": "Refresco 600ml", "group": "Bebidas", "subgroup": "Refrescos", "variant_modifier": null, "unit_price": 45.00, "quantity": 6, "item_discount": 0.00 }
+            ]
+          },
+          { "order_id": "T2-002", "timestamp": "16:45", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Para llevar", "subtotal": 90.00, "tax": 14.40, "discounts": 0.00, "total_net": 104.40, "forma_de_pago": "Tarjeta_Clip" },
+          { "order_id": "T2-003", "timestamp": "17:20", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Comedor", "subtotal": 732.76, "tax": 117.24, "discounts": 0.00, "total_net": 850.00, "forma_de_pago": "Efectivo" },
+          { "order_id": "T2-004", "timestamp": "18:00", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Delivery App", "subtotal": 150.00, "tax": 24.00, "discounts": 0.00, "total_net": 174.00, "forma_de_pago": "DiDiFood" },
+          { "order_id": "T2-005", "timestamp": "19:15", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Comedor", "subtotal": 775.86, "tax": 124.14, "discounts": 0.00, "total_net": 900.00, "forma_de_pago": "Efectivo" },
+          { "order_id": "T2-006", "timestamp": "20:00", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Comedor", "subtotal": 210.00, "tax": 33.60, "discounts": 0.00, "total_net": 243.60, "forma_de_pago": "Cortesía_Staff", "monto_cobrado": 0.00, "valor_cortesia": 243.60 },
+          { "order_id": "T2-007", "timestamp": "20:45", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Para llevar", "subtotal": 474.14, "tax": 75.86, "discounts": 0.00, "total_net": 550.00, "forma_de_pago": "Efectivo" },
+          { "order_id": "T2-008", "timestamp": "21:30", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Comedor", "subtotal": 295.00, "tax": 47.20, "discounts": 0.00, "total_net": 342.20, "forma_de_pago": "Tarjeta_Clip" },
+          { "order_id": "T2-009", "timestamp": "22:10", "sucursal_id": "SUC-01", "cajero_id": "C-02", "order_type": "Delivery App", "subtotal": 165.00, "tax": 26.40, "discounts": 0.00, "total_net": 191.40, "forma_de_pago": "UberEats" }
+        ]
+      }
+    ],
+    "inventario": {
+      "insumos": [
+        { "insumo": "cafe_grano", "ingredients_usage_kg": 3.2, "waste_recorded_kg": 0.05, "current_stock_kg": 18.0, "unit_cost_mxn_kg": 220.00, "unit_cost_hace_30d_mxn_kg": 220.00 },
+        { "insumo": "leche_entera", "ingredients_usage_l": 12.5, "waste_recorded_l": 0.2, "current_stock_l": 40.0, "unit_cost_mxn_l": 24.00, "unit_cost_hace_30d_mxn_l": 24.00 }
+      ]
+    }
+  },
+
+  "esperado_S3": [
+    { "metric": "calc_shift_cash_variance", "turno": "T1", "value": 0.00, "status": "ok", "detalle": "apertura 1000.00 + efectivo 643.80 = 1643.80 esperado; contado 1643.80; sin diferencia" },
+    { "metric": "calc_shift_cash_variance", "turno": "T2", "value": -650.00, "status": "critical", "detalle": "apertura 1000.00 + efectivo 3000.00 = 4000.00 esperado; contado 3350.00; faltante 650.00 = 21.7% de ventas en efectivo del turno, cruza umbral crítico ($500 piso o 3%, cualquiera de las dos lecturas)" },
+    { "metric": "calc_avg_ticket", "periodo": "dia", "value": 335.89, "status": "ok", "detalle": "17 órdenes, suma total_net 5710.20 (nota: no comparable al ticket promedio base del proyecto por el volumen reducido de este caso, ver notas_construccion)" },
+    { "metric": "calc_payment_mix", "periodo": "dia", "value": { "Efectivo": 0.638, "Tarjeta_Clip": 0.096, "UberEats": 0.070, "Rappi": 0.028, "DiDiFood": 0.030, "Tarjetas_Lealtad": 0.053, "Cortesía_Staff": 0.043 }, "status": "ok" },
+    { "metric": "calc_channel_mix", "periodo": "dia", "value": { "Comedor": 0.65, "Para llevar": 0.18, "Delivery App": 0.17 }, "status": "ok" },
+    { "metric": "calc_staff_courtesy_ratio", "periodo": "dia", "value": 0.0427, "status": "ok", "detalle": "243.60 de cortesía sobre 5710.20 de ventas brutas, por debajo del umbral de alerta" },
+    { "metric": "calc_cancellation_rate", "periodo": "dia", "value": 0.00, "status": "ok" },
+    { "metric": "calc_reprint_rate", "periodo": "dia", "value": 0.00, "status": "ok" },
+    { "metric": "check_price_inflation", "insumo": "cafe_grano", "value": 0.00, "status": "ok" },
+    { "metric": "calc_waste_cost", "insumo": "cafe_grano", "value": 11.00, "status": "ok", "detalle": "0.05kg x $220/kg, dentro de rango normal" }
+  ],
+
+  "esperado_hallazgos": [
+    {
+      "flag": "faltante_de_caja",
+      "turno": "T2",
+      "severidad": "critical",
+      "justificacion_corta": "Faltante de $650 MXN en el cierre del turno 2, equivalente a 21.7% de las ventas en efectivo de ese turno — muy por encima del umbral crítico bajo cualquier lectura de la regla de materialidad."
+    }
+  ],
+
+  "esperado_narrativa": null,
+  "revisado_por": null
+}

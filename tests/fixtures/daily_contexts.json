@@ -1,0 +1,110 @@
+[
+  {
+    "id": "5ed18af0-1cd0-4a89-aeb4-6a4f6ed1cb84",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-01-06",
+    "tags": {
+      "clima": "frio",
+      "equipo": null,
+      "evento": "obra_vial",
+      "personal": null,
+      "otros": null
+    }
+  },
+  {
+    "id": "e252e812-1564-42e1-a2f9-e64b6725f747",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-02-03",
+    "tags": {
+      "clima": "frio",
+      "equipo": null,
+      "evento": null,
+      "personal": null,
+      "otros": null
+    }
+  },
+  {
+    "id": "eb716a91-ff44-4327-a8c7-872e59864566",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-02-02",
+    "tags": {
+      "clima": "lluvia",
+      "equipo": null,
+      "evento": "festivo",
+      "personal": null,
+      "otros": null
+    }
+  },
+  {
+    "id": "dfde1dad-f5f8-4276-92e1-c8cf101c129a",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-01-16",
+    "tags": {
+      "clima": "frio",
+      "equipo": null,
+      "evento": "obra_vial",
+      "personal": null,
+      "otros": null
+    }
+  },
+  {
+    "id": "203834e5-6bf8-4825-add6-8f4303490605",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-02-29",
+    "tags": {
+      "clima": "frio",
+      "equipo": "falla_maquina",
+      "evento": null,
+      "personal": null,
+      "otros": "Día con anomalía detectada en dataset de prueba"
+    }
+  },
+  {
+    "id": "a1cd99bd-7e46-4eb2-a97f-7c6a51843648",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-03-24",
+    "tags": {
+      "clima": null,
+      "equipo": "falla_maquina",
+      "evento": "festivo",
+      "personal": "falta_staff",
+      "otros": "Día con anomalía detectada en dataset de prueba"
+    }
+  },
+  {
+    "id": "06fb76f8-36ef-441d-abec-8baa3a8f8c3b",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-01-20",
+    "tags": {
+      "clima": "calor",
+      "equipo": "falla_maquina",
+      "evento": "promocion",
+      "personal": null,
+      "otros": "Día con anomalía detectada en dataset de prueba"
+    }
+  },
+  {
+    "id": "1a202637-b052-4b58-8c23-25623534e0e7",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-03-10",
+    "tags": {
+      "clima": "calor",
+      "equipo": "mantenimiento",
+      "evento": "obra_vial",
+      "personal": "falta_staff",
+      "otros": "Día con anomalía detectada en dataset de prueba"
+    }
+  },
+  {
+    "id": "fff84ca5-74ab-443f-b58f-69ddb2388611",
+    "business_id": "4704dfb4-f58d-4013-b513-1f12841f1e22",
+    "date": "2024-03-27",
+    "tags": {
+      "clima": "frio",
+      "equipo": "mantenimiento",
+      "evento": "festivo",
+      "personal": "capacitacion",
+      "otros": "Día con anomalía detectada en dataset de prueba"
+    }
+  }
+]

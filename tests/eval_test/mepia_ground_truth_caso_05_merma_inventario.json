@@ -1,0 +1,385 @@
+{
+  "id": "caso_05_merma_inventario_riesgo",
+  "tipo": "dia_completo_sintetico",
+  "escenario_narrativo": "El café en grano tiene merma alta, cobertura de stock baja, y precio al alza — los tres al mismo tiempo. El día de ventas es deliberadamente normal (no es el foco) para que el caso pruebe una sola cosa: correlación multi-métrica sobre un insumo, y que el stock bajo se presente como urgente, no solo como un dato forense más.",
+  "anomalias_inyectadas": [
+    {
+      "donde": "insumo cafe_grano",
+      "que": "waste_recorded = 15% del consumo teórico del día (vs <2% normal)",
+      "metrica_que_deberia_dispararse": "calc_waste_analysis / calc_waste_cost — critical"
+    },
+    {
+      "donde": "insumo cafe_grano",
+      "que": "current_stock alcanza para ~2 días al ritmo de consumo actual",
+      "metrica_que_deberia_dispararse": "calc_stock_days_remaining — critical (<3 días)"
+    },
+    {
+      "donde": "insumo cafe_grano",
+      "que": "unit_cost sube 8% vs hace 30 días",
+      "metrica_que_deberia_dispararse": "check_price_inflation — warning (>5%)"
+    }
+  ],
+  "notas_construccion": [
+    "UMBRAL NUEVO, no confirmado antes de este caso: % de merma vs consumo teórico. Propongo >5% = warning, >10% = critical (el 15% inyectado aquí cae claramente en crítico bajo cualquier valor razonable de ese rango). calc_waste_analysis ya existe en el repo desde antes de este rediseño — no tengo visibilidad de qué umbral usa hoy internamente, así que este valor es una propuesta a verificar contra el código real, no un hecho confirmado.",
+    "Se incluye leche_entera como insumo de control, completamente limpio (merma 1.25%, 7.5 días de cobertura, sin inflación) — a propósito, para que el caso también pruebe que el sistema NO generaliza el problema a todo el inventario cuando solo un insumo está afectado.",
+    "El día de ventas (12 órdenes, 2 turnos) se dejó intencionalmente sin anomalías — mismo patrón que el Caso 1, para que la única señal del caso sea la de inventario.",
+    "El tono esperado en la narrativa es distinto al de faltantes de caja o fraude: aquí no hay nada que 'ya pasó y hay que investigar', hay algo que 'va a pasar en 2 días si no se actúa' — el hallazgo debe leerse como urgente/proactivo, no forense."
+  ],
+  "config_negocio": {
+    "multi_sucursal": false,
+    "umbrales": {
+      "merma_pct_consumo_teorico": {
+        "warning": 0.05,
+        "critical": 0.1,
+        "estado": "propuesto, pendiente de confirmar contra calc_waste_analysis existente"
+      },
+      "stock_days_remaining": {
+        "warning_dias": 7,
+        "critical_dias": 3
+      },
+      "price_inflation_30d": {
+        "warning": 0.05
+      }
+    }
+  },
+  "input": {
+    "negocio_id": "PILOTO-001",
+    "fecha": "2026-08-08",
+    "turnos": [
+      {
+        "turno_id": "T1",
+        "cajero_id": "C-01",
+        "hora_apertura": "07:00",
+        "hora_cierre": "15:00",
+        "shift_data": {
+          "saldo_inicial": 1000.0,
+          "cierre_x_hora": "15:05",
+          "cierre_z_hora": "15:10",
+          "saldo_final_contado": 1522.0
+        },
+        "clock_in_out": [
+          {
+            "empleado_id": "C-01",
+            "clock_in": "06:55",
+            "clock_out": "15:05"
+          }
+        ],
+        "reprints": [],
+        "cancellations": [],
+        "ordenes": [
+          {
+            "order_id": "T1-001",
+            "timestamp": "07:30",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo",
+            "detalle_producto": [
+              {
+                "item_id": "P-150",
+                "product_name": "Chilaquiles Verdes con Pollo",
+                "group": "Alimentos",
+                "subgroup": "Platos Fuertes",
+                "variant_modifier": null,
+                "unit_price": 150.0,
+                "quantity": 1,
+                "item_discount": 0.0
+              }
+            ]
+          },
+          {
+            "order_id": "T1-002",
+            "timestamp": "09:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-003",
+            "timestamp": "10:15",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Para llevar",
+            "subtotal": 85.0,
+            "tax": 13.6,
+            "discounts": 0.0,
+            "total_net": 98.6,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T1-004",
+            "timestamp": "11:30",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Delivery App",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "UberEats"
+          },
+          {
+            "order_id": "T1-005",
+            "timestamp": "12:45",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T1-006",
+            "timestamp": "14:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-01",
+            "order_type": "Para llevar",
+            "subtotal": 85.0,
+            "tax": 13.6,
+            "discounts": 0.0,
+            "total_net": 98.6,
+            "forma_de_pago": "Tarjeta_Clip"
+          }
+        ]
+      },
+      {
+        "turno_id": "T2",
+        "cajero_id": "C-02",
+        "hora_apertura": "15:00",
+        "hora_cierre": "23:00",
+        "shift_data": {
+          "saldo_inicial": 1000.0,
+          "cierre_x_hora": "23:05",
+          "cierre_z_hora": "23:10",
+          "saldo_final_contado": 1522.0
+        },
+        "clock_in_out": [
+          {
+            "empleado_id": "C-02",
+            "clock_in": "14:55",
+            "clock_out": "23:05"
+          }
+        ],
+        "reprints": [],
+        "cancellations": [],
+        "ordenes": [
+          {
+            "order_id": "T2-001",
+            "timestamp": "15:30",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-002",
+            "timestamp": "17:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-003",
+            "timestamp": "18:15",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Para llevar",
+            "subtotal": 85.0,
+            "tax": 13.6,
+            "discounts": 0.0,
+            "total_net": 98.6,
+            "forma_de_pago": "Tarjeta_Clip"
+          },
+          {
+            "order_id": "T2-004",
+            "timestamp": "19:30",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Delivery App",
+            "subtotal": 140.0,
+            "tax": 22.4,
+            "discounts": 0.0,
+            "total_net": 162.4,
+            "forma_de_pago": "Rappi"
+          },
+          {
+            "order_id": "T2-005",
+            "timestamp": "20:45",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Comedor",
+            "subtotal": 150.0,
+            "tax": 24.0,
+            "discounts": 0.0,
+            "total_net": 174.0,
+            "forma_de_pago": "Efectivo"
+          },
+          {
+            "order_id": "T2-006",
+            "timestamp": "22:00",
+            "sucursal_id": "SUC-01",
+            "cajero_id": "C-02",
+            "order_type": "Para llevar",
+            "subtotal": 85.0,
+            "tax": 13.6,
+            "discounts": 0.0,
+            "total_net": 98.6,
+            "forma_de_pago": "Tarjeta_Clip"
+          }
+        ]
+      }
+    ],
+    "inventario": {
+      "insumos": [
+        {
+          "insumo": "cafe_grano",
+          "ingredients_usage_kg": 4.0,
+          "waste_recorded_kg": 0.6,
+          "current_stock_kg": 8.0,
+          "unit_cost_mxn_kg": 237.6,
+          "unit_cost_hace_30d_mxn_kg": 220.0
+        },
+        {
+          "insumo": "leche_entera",
+          "ingredients_usage_l": 12.0,
+          "waste_recorded_l": 0.15,
+          "current_stock_l": 90.0,
+          "unit_cost_mxn_l": 24.0,
+          "unit_cost_hace_30d_mxn_l": 24.0
+        }
+      ]
+    },
+    "compras": [
+      {
+        "ingredient_id": "cafe_grano",
+        "quantity": 4.6,
+        "unit": "kg",
+        "unit_price": 237.6,
+        "fecha": "2026-05-15"
+      },
+      {
+        "ingredient_id": "leche_entera",
+        "quantity": 12.15,
+        "unit": "l",
+        "unit_price": 24.0,
+        "fecha": "2026-05-15"
+      }
+    ]
+  },
+  "esperado_S3": [
+    {
+      "metric": "calc_shift_cash_variance",
+      "turno": "T1",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_shift_cash_variance",
+      "turno": "T2",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_waste_analysis",
+      "insumo": "cafe_grano",
+      "value": 0.15,
+      "status": "critical",
+      "detalle": "0.60kg de merma / 4.0kg de consumo teórico = 15%, muy por encima del 10% propuesto como crítico."
+    },
+    {
+      "metric": "calc_waste_analysis",
+      "insumo": "leche_entera",
+      "value": 0.0125,
+      "status": "ok",
+      "detalle": "1.25%, dentro de lo normal — insumo de control, sin problema."
+    },
+    {
+      "metric": "calc_waste_cost",
+      "insumo": "cafe_grano",
+      "value": 142.56,
+      "status": "critical",
+      "detalle": "0.60kg x $237.60/kg."
+    },
+    {
+      "metric": "calc_waste_cost",
+      "insumo": "leche_entera",
+      "value": 3.6,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_stock_days_remaining",
+      "insumo": "cafe_grano",
+      "value": 2.0,
+      "status": "critical",
+      "detalle": "8.0kg / 4.0kg diarios = 2 días, por debajo del umbral crítico de 3 días."
+    },
+    {
+      "metric": "calc_stock_days_remaining",
+      "insumo": "leche_entera",
+      "value": 7.5,
+      "status": "ok"
+    },
+    {
+      "metric": "check_price_inflation",
+      "insumo": "cafe_grano",
+      "value": 0.08,
+      "status": "warning",
+      "detalle": "($237.60 - $220.00) / $220.00 = 8.0%, por encima del umbral de 5%."
+    },
+    {
+      "metric": "check_price_inflation",
+      "insumo": "leche_entera",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_avg_ticket",
+      "periodo": "dia",
+      "value": 126.67,
+      "status": "ok",
+      "detalle": "Base estandarizada a subtotal (sin IVA) tras decision de diseno: IVA es impuesto de traslado, no ingreso propio. sum(subtotal)=1520.00 / n=12 ordenes = 126.67. (Valor anterior con base total_net: 146.93)"
+    },
+    {
+      "metric": "calc_cancellation_rate",
+      "periodo": "dia",
+      "value": 0.0,
+      "status": "ok"
+    },
+    {
+      "metric": "calc_reprint_rate",
+      "periodo": "dia",
+      "value": 0.0,
+      "status": "ok"
+    }
+  ],
+  "esperado_hallazgos": [
+    {
+      "flag": "insumo_critico_multi_senal",
+      "insumo": "cafe_grano",
+      "severidad": "critical",
+      "justificacion_corta": "El café en grano tiene tres problemas simultáneos: merma de 15% (vs. <2% normal, $142.56 perdidos hoy), cobertura de solo 2 días al ritmo de consumo actual, y precio subiendo 8% en 30 días. Se presenta como una sola señal conectada, no tres líneas sueltas — y el ángulo de cobertura de 2 días debe leerse como urgente y accionable (hay que reabastecer pronto), no como un dato forense más junto a los otros dos."
+    }
+  ],
+  "esperado_narrativa": null,
+  "revisado_por": null
+}

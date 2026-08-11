@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante
+    xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    Version="4.0"
+    Fecha="2024-03-18T12:00:00"
+    Folio="FAC-2024-00005"
+    SubTotal="86.42"
+    Total="100.25"
+    Moneda="MXN"
+    TipoDeComprobante="I">
+  <cfdi:Emisor
+      Nombre="Distribuidora La Paloma SA de CV"
+      Rfc="DLP200101AAA"
+      RegimenFiscal="601"/>
+  <cfdi:Receptor
+      Nombre="MEPIA Test Business"
+      Rfc="XEXX010101000"
+      UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto
+        Descripcion="Cebolla blanca 10kg"
+        Cantidad="1"
+        ValorUnitario="86.42"
+        Importe="86.42"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="13.83">
+    <cfdi:Traslados>
+      <cfdi:Traslado
+          Impuesto="002"
+          TipoFactor="Tasa"
+          TasaOCuota="0.160000"
+          Importe="13.83"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+</cfdi:Comprobante>

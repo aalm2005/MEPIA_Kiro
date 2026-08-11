@@ -20,22 +20,41 @@ function getApiErrorMessage(status: number, body: unknown): string {
   if (status === 412) return "Completa el onboarding antes de auditar.";
   if (status === 503) return "El servicio no está disponible.";
   if (status === 422) {
-    const detail =
-      (body as { detail?: string } | null)?.detail;
+    const detail = (body as { detail?: string } | null)?.detail;
     return detail ?? "Error de validación.";
   }
   return "Error inesperado. Intenta de nuevo.";
+}
+
+/**
+ * Uploads a single file to the backend and returns the parsed response.
+ */
+async function uploadSingleFile(
+  file: File,
+  type: "pos" | "factura"
+): Promise<{ ok: boolean; status: number; data: unknown }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("type", type);
+
+  const res = await fetch("/api/upload", { method: "POST", body: formData });
+  const data = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, data };
 }
 
 export default function UploadForm() {
   const router = useRouter();
 
   const [archetype, setArchetype] = useState<Archetype>("Operative Genius");
-  const [posFile, setPosFile] = useState<File | null>(null);
-  const [facturaFile, setFacturaFile] = useState<File | null>(null);
+  const [auditDate, setAuditDate] = useState("2024-01-15");
+  const [posFiles, setPosFiles] = useState<File[]>([]);
+  const [facturaFiles, setFacturaFiles] = useState<File[]>([]);
 
   const [posStatus, setPosStatus] = useState<DropzoneStatus>("idle");
   const [facturaStatus, setFacturaStatus] = useState<DropzoneStatus>("idle");
+
+  const [posProgress, setPosProgress] = useState("");
+  const [facturaProgress, setFacturaProgress] = useState("");
 
   const [posReview, setPosReview] = useState<ReviewState | null>(null);
   const [facturaReview, setFacturaReview] = useState<ReviewState | null>(null);
@@ -44,6 +63,8 @@ export default function UploadForm() {
   const [facturaErrorMessage, setFacturaErrorMessage] = useState<string | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  /** Tracks the most recent date from uploaded documents for the audit run */
+  const [latestUploadDate, setLatestUploadDate] = useState<string | null>(null);
 
   // ── Derived state ──────────────────────────────────────────────────────────
 
@@ -51,7 +72,7 @@ export default function UploadForm() {
   const isFacturaReviewPending = facturaStatus === "needs_human_review" && facturaReview !== null;
   const isReviewPending = isPosReviewPending || isFacturaReviewPending;
 
-  const noFilesSelected = posFile === null && facturaFile === null;
+  const noFilesSelected = posFiles.length === 0 && facturaFiles.length === 0;
 
   const isDisabled =
     noFilesSelected ||
@@ -66,23 +87,101 @@ export default function UploadForm() {
     if (isPosReviewPending) return "Esperando revisión POS...";
     if (isFacturaReviewPending) return "Esperando revisión Factura...";
     if (isAnalyzing) return "Analizando...";
+    const total = posFiles.length + facturaFiles.length;
+    if (total > 1) return `Analizar ${total} archivos con Agentes IA →`;
     return "Analizar con Agentes IA →";
   }
 
   // ── File handlers ──────────────────────────────────────────────────────────
 
-  function handlePosFile(file: File) {
-    setPosFile(file);
+  function handlePosFiles(files: File[]) {
+    setPosFiles(files);
     setPosStatus("idle");
     setPosErrorMessage(null);
     setPosReview(null);
   }
 
-  function handleFacturaFile(file: File) {
-    setFacturaFile(file);
+  function handleFacturaFiles(files: File[]) {
+    setFacturaFiles(files);
     setFacturaStatus("idle");
     setFacturaErrorMessage(null);
     setFacturaReview(null);
+  }
+
+  // ── Upload a batch of files sequentially ───────────────────────────────────
+
+  async function uploadBatch(
+    files: File[],
+    type: "pos" | "factura",
+    setStatus: (s: DropzoneStatus) => void,
+    setProgress: (p: string) => void,
+    setError: (e: string | null) => void,
+    setReview: (r: ReviewState | null) => void,
+  ): Promise<boolean> {
+    if (files.length === 0) return true;
+
+    setStatus("uploading");
+    setError(null);
+
+    let succeeded = 0;
+    let lastReview: ReviewState | null = null;
+
+    for (let i = 0; i < files.length; i++) {
+      setProgress(`${i + 1} / ${files.length} archivos`);
+
+      try {
+        const { ok, status, data } = await uploadSingleFile(files[i], type);
+
+        if (!ok) {
+          const msg = getApiErrorMessage(status, data);
+          setError(`Error en ${files[i].name}: ${msg}`);
+          setStatus("error");
+          return false;
+        }
+
+        // Check for human review needed
+        const results: Array<{
+          needs_human_review: boolean;
+          file_id: string;
+          missing_fields?: string[];
+        }> = Array.isArray(data) ? data : [data];
+
+        const reviewNeeded = results.find((r) => r.needs_human_review);
+        if (reviewNeeded) {
+          lastReview = {
+            fileId: reviewNeeded.file_id,
+            missingFields: reviewNeeded.missing_fields ?? [],
+          };
+        }
+
+        // Track dates from successful uploads for the audit run
+        for (const r of results) {
+          const d = (r as Record<string, unknown>).date as string | undefined
+            ?? ((r as Record<string, unknown>).extracted_fields as Record<string, unknown> | undefined)?.transaction_date as string | undefined;
+          if (d && d !== "unknown" && d !== "null") {
+            setLatestUploadDate((prev) => (!prev || d > prev) ? d : prev);
+          }
+        }
+
+        succeeded++;
+      } catch {
+        setError(`Error inesperado en ${files[i].name}.`);
+        setStatus("error");
+        return false;
+      }
+    }
+
+    // If any file needs review, pause on the last one
+    if (lastReview) {
+      setStatus("needs_human_review" as DropzoneStatus);
+      setReview(lastReview);
+      setProgress(`${succeeded} / ${files.length} — revisión pendiente`);
+      return false;
+    }
+
+    setStatus("done");
+    setProgress(`${succeeded} archivos procesados`);
+    return true;
   }
 
   // ── Main upload + audit flow ───────────────────────────────────────────────
@@ -90,109 +189,19 @@ export default function UploadForm() {
   async function handleAnalyze() {
     setAuditError(null);
 
-    // ── Step 1: Upload POS ──────────────────────────────────────────────────
-    if (posFile) {
-      setPosStatus("uploading");
-      setPosErrorMessage(null);
+    // Step 1: Upload all POS files
+    const posOk = await uploadBatch(
+      posFiles, "pos", setPosStatus, setPosProgress, setPosErrorMessage, setPosReview
+    );
+    if (!posOk) return;
 
-      try {
-        const formData = new FormData();
-        formData.append("file", posFile);
-        formData.append("type", "pos");
+    // Step 2: Upload all Factura files
+    const facturaOk = await uploadBatch(
+      facturaFiles, "factura", setFacturaStatus, setFacturaProgress, setFacturaErrorMessage, setFacturaReview
+    );
+    if (!facturaOk) return;
 
-        const res = await fetch("/api/upload", { method: "POST", body: formData });
-        const body = await res.json().catch(() => null);
-
-        if (!res.ok) {
-          const msg = getApiErrorMessage(res.status, body);
-          setPosStatus("error");
-          setPosErrorMessage(msg);
-          return;
-        }
-
-        // POSIngestResult[]
-        const results: Array<{
-          needs_human_review: boolean;
-          file_id: string;
-          missing_fields?: string[];
-        }> = Array.isArray(body) ? body : [body];
-
-        const reviewNeeded = results.find((r) => r.needs_human_review);
-        if (reviewNeeded) {
-          setPosStatus("needs_human_review" as DropzoneStatus);
-          setPosReview({
-            fileId: reviewNeeded.file_id,
-            missingFields: reviewNeeded.missing_fields ?? [],
-          });
-          // Flow pauses here — user must complete review via ReviewAlert
-          return;
-        }
-
-        setPosStatus("done");
-      } catch {
-        setPosStatus("error");
-        setPosErrorMessage("Error inesperado. Intenta de nuevo.");
-        return;
-      }
-    }
-
-    // ── Step 2: Guard — if POS review is still pending, stop ───────────────
-    if (posReview !== null) {
-      return;
-    }
-
-    // ── Step 3: Upload Factura ──────────────────────────────────────────────
-    if (facturaFile) {
-      setFacturaStatus("uploading");
-      setFacturaErrorMessage(null);
-
-      try {
-        const formData = new FormData();
-        formData.append("file", facturaFile);
-        formData.append("type", "factura");
-
-        const res = await fetch("/api/upload", { method: "POST", body: formData });
-        const body = await res.json().catch(() => null);
-
-        if (!res.ok) {
-          const msg = getApiErrorMessage(res.status, body);
-          setFacturaStatus("error");
-          setFacturaErrorMessage(msg);
-          return;
-        }
-
-        // FacturaIngestResult[]
-        const results: Array<{
-          needs_human_review: boolean;
-          file_id: string;
-          missing_fields?: string[];
-        }> = Array.isArray(body) ? body : [body];
-
-        const reviewNeeded = results.find((r) => r.needs_human_review);
-        if (reviewNeeded) {
-          setFacturaStatus("needs_human_review" as DropzoneStatus);
-          setFacturaReview({
-            fileId: reviewNeeded.file_id,
-            missingFields: reviewNeeded.missing_fields ?? [],
-          });
-          // Flow pauses here — user must complete review via ReviewAlert
-          return;
-        }
-
-        setFacturaStatus("done");
-      } catch {
-        setFacturaStatus("error");
-        setFacturaErrorMessage("Error inesperado. Intenta de nuevo.");
-        return;
-      }
-    }
-
-    // ── Step 4: Guard — if Factura review is still pending, stop ───────────
-    if (facturaReview !== null) {
-      return;
-    }
-
-    // ── Step 5: Trigger audit ───────────────────────────────────────────────
+    // Step 3: Trigger audit
     setIsAnalyzing(true);
 
     try {
@@ -202,7 +211,7 @@ export default function UploadForm() {
         body: JSON.stringify({
           archetype,
           business_id: process.env.NEXT_PUBLIC_BUSINESS_ID,
-          date: new Date().toISOString().split("T")[0],
+          date: auditDate || latestUploadDate || new Date().toISOString().split("T")[0],
         }),
       });
 
@@ -242,17 +251,31 @@ export default function UploadForm() {
 
   return (
     <div>
-      {/* Title */}
       <h1 className="text-forensic-lg font-semibold text-zinc-100 mb-6 uppercase tracking-widest">
         INGESTA — Subir Documentos de Auditoría
       </h1>
 
-      {/* Archetype selector */}
       <div className="mb-6">
         <ArchetypeSelector value={archetype} onChange={setArchetype} />
       </div>
 
-      {/* 2-column dropzone grid */}
+      {/* Date picker for audit */}
+      <div className="mb-6 flex items-center gap-3">
+        <label
+          htmlFor="audit-date"
+          className="text-xs font-semibold uppercase tracking-widest text-zinc-500"
+        >
+          Fecha a auditar
+        </label>
+        <input
+          id="audit-date"
+          type="date"
+          value={auditDate}
+          onChange={(e) => setAuditDate(e.target.value)}
+          className="bg-zinc-900 border border-zinc-700 rounded px-3 py-1.5 text-sm text-zinc-200 font-mono focus:outline-none focus:border-emerald-600"
+        />
+      </div>
+
       <div className="grid grid-cols-2 gap-6 mb-4">
         {/* POS column */}
         <div className="flex flex-col gap-2">
@@ -260,10 +283,16 @@ export default function UploadForm() {
             label="Ticket POS"
             accept={["application/pdf"]}
             status={posStatus}
-            onFile={handlePosFile}
+            onFiles={handlePosFiles}
             errorMessage={posErrorMessage ?? undefined}
+            progressText={posProgress || undefined}
           />
           <UploadStatusBadge status={posStatus} />
+          {posFiles.length > 0 && posStatus === "idle" && (
+            <p className="text-xs text-zinc-500 font-mono">
+              {posFiles.length} archivo{posFiles.length > 1 ? "s" : ""} seleccionado{posFiles.length > 1 ? "s" : ""}
+            </p>
+          )}
           {posReview && (
             <ReviewAlert
               documentType="pos"
@@ -280,10 +309,16 @@ export default function UploadForm() {
             label="Factura de Proveedor"
             accept={["application/pdf", "text/xml", "application/xml"]}
             status={facturaStatus}
-            onFile={handleFacturaFile}
+            onFiles={handleFacturaFiles}
             errorMessage={facturaErrorMessage ?? undefined}
+            progressText={facturaProgress || undefined}
           />
           <UploadStatusBadge status={facturaStatus} />
+          {facturaFiles.length > 0 && facturaStatus === "idle" && (
+            <p className="text-xs text-zinc-500 font-mono">
+              {facturaFiles.length} archivo{facturaFiles.length > 1 ? "s" : ""} seleccionado{facturaFiles.length > 1 ? "s" : ""}
+            </p>
+          )}
           {facturaReview && (
             <ReviewAlert
               documentType="factura"
@@ -295,7 +330,6 @@ export default function UploadForm() {
         </div>
       </div>
 
-      {/* Audit error banner */}
       {auditError && (
         <div
           className="mb-4 px-4 py-3 border border-red-700 bg-red-950/30 rounded text-sm text-red-400 font-mono"
@@ -305,7 +339,6 @@ export default function UploadForm() {
         </div>
       )}
 
-      {/* CTA button */}
       <button
         type="button"
         onClick={handleAnalyze}

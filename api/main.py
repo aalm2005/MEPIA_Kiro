@@ -51,9 +51,42 @@ from agents.factura_parser import (
     ExtractedFacturaFields,
     calculate_sha256,
 )
+from agents.api_ingest import (
+    APIIngestPayload,
+    APIIngestResult,
+    ValidationResult,
+    validate_payload,
+    persist_ingestion,
+)
 from core.config import settings
 
+# ---------------------------------------------------------------------------
+# Exportar variables de settings a os.environ para agentes que usan os.environ
+# directamente (N05, S4, N13, etc.)
+# ---------------------------------------------------------------------------
+for _key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
+    _val = getattr(settings, _key, None)
+    if _val and _key not in os.environ:
+        os.environ[_key] = _val
+
 app = FastAPI(title="MEPIA Agents API")
+
+# ---------------------------------------------------------------------------
+# Global exception handler — muestra tracebacks en logs de desarrollo
+# ---------------------------------------------------------------------------
+import logging
+import traceback as _tb
+from fastapi.responses import JSONResponse
+from starlette.requests import Request
+
+logging.basicConfig(level=logging.DEBUG if settings.ENVIRONMENT == "dev" else logging.INFO)
+_logger = logging.getLogger("mepia")
+
+
+@app.exception_handler(Exception)
+async def _global_exception_handler(request: Request, exc: Exception):
+    _logger.error("Unhandled exception on %s %s:\n%s", request.method, request.url.path, _tb.format_exc())
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 # ---------------------------------------------------------------------------
 # Singleton de MemoryService — inicializado en startup
@@ -843,33 +876,10 @@ async def ingest_factura(
         file_bytes,
     )
 
-    # 7. Insertar en transactions si no requiere revisión
-    transaction_id: Optional[str] = None
-    if not extract_result.needs_human_review and extract_result.extracted_fields:
-        ef = extract_result.extracted_fields
-        transaction_id = str(uuid4())
-        db.table("transactions").insert(
-            {
-                "id": transaction_id,
-                "business_id": business_id,
-                "document_id": file_id,
-                "type": "egreso",
-                "category": "proveedor",
-                "amount": float(ef.amount),
-                "tax_amount": float(ef.tax_amount),
-                "transaction_date": ef.transaction_date.isoformat(),
-                "supplier_name": ef.supplier_name,
-                "concept": ef.concept,
-                "document_reference": ef.document_reference,
-                "expense_behavior": None,
-                "raw_metadata": extract_result.raw_metadata,
-            }
-        ).execute()
-
-    # 8. Insertar en documents
+    # 7. Insertar en documents PRIMERO (transactions tiene FK a documents)
     extracted_data_json = {
         "sha256": sha,
-        "transaction_id": transaction_id,
+        "transaction_id": None,  # se actualiza después si se crea transaction
         "extracted_fields": (
             extract_result.extracted_fields.model_dump(mode="json")
             if extract_result.extracted_fields
@@ -892,6 +902,35 @@ async def ingest_factura(
             "extracted_data": extracted_data_json,
         }
     ).execute()
+
+    # 8. Insertar en transactions si no requiere revisión
+    transaction_id: Optional[str] = None
+    if not extract_result.needs_human_review and extract_result.extracted_fields:
+        ef = extract_result.extracted_fields
+        transaction_id = str(uuid4())
+        db.table("transactions").insert(
+            {
+                "id": transaction_id,
+                "business_id": business_id,
+                "document_id": file_id,
+                "type": "egreso",
+                "category": "proveedor",
+                "amount": float(ef.amount),
+                "tax_amount": float(ef.tax_amount),
+                "transaction_date": ef.transaction_date.isoformat(),
+                "supplier_name": ef.supplier_name,
+                "concept": ef.concept,
+                "document_reference": ef.document_reference,
+                "expense_behavior": None,
+                "raw_metadata": extract_result.raw_metadata,
+            }
+        ).execute()
+
+        # Actualizar extracted_data con el transaction_id
+        extracted_data_json["transaction_id"] = transaction_id
+        db.table("documents").update(
+            {"extracted_data": extracted_data_json}
+        ).eq("id", file_id).execute()
 
     return FacturaIngestResult(
         file_id=file_id,
@@ -965,6 +1004,62 @@ async def review_factura(file_id: str, payload: FacturaReviewPayload):
         "extraction_status": "success",
         "needs_human_review": False,
     }
+
+
+# ===========================================================================
+# S1B Ingesta API — POST /ingest/api-event (Ruta Primaria)
+# Spec: .kiro/specs/mepia/s1b_ingesta_api.md
+# ===========================================================================
+
+@app.post("/ingest/api-event", response_model=APIIngestResult, status_code=201)
+async def ingest_api_event(payload: APIIngestPayload):
+    """
+    POST /ingest/api-event
+    Ruta primaria de ingesta — recibe datos estructurados del POS vía API JSON.
+    Spec: s1b_ingesta_api.md
+    """
+    db = get_supabase()
+
+    # 1. Verify business exists (rule 10)
+    business_resp = (
+        db.table("businesses")
+        .select("id")
+        .eq("id", str(payload.business_id))
+        .execute()
+    )
+    business_exists = bool(business_resp.data)
+
+    # 2. Get existing order_ids for idempotency (rule 5)
+    existing_orders_resp = (
+        db.table("transactions")
+        .select("raw_metadata")
+        .eq("business_id", str(payload.business_id))
+        .eq("transaction_date", payload.date.isoformat())
+        .execute()
+    )
+    existing_order_ids: set[str] = set()
+    for row in existing_orders_resp.data or []:
+        meta = row.get("raw_metadata") or {}
+        order_id = meta.get("order_id")
+        if order_id:
+            existing_order_ids.add(order_id)
+
+    # 3. Validate payload (rules 1–10)
+    validation = validate_payload(payload, existing_order_ids, business_exists)
+
+    # 4. Return appropriate HTTP error if rejected
+    if validation.is_rejected:
+        if "404" in (validation.reject_reason or ""):
+            raise HTTPException(status_code=404, detail=validation.reject_reason)
+        elif "422" in (validation.reject_reason or ""):
+            raise HTTPException(status_code=422, detail=validation.reject_reason)
+        else:
+            raise HTTPException(status_code=400, detail=validation.reject_reason)
+
+    # 5. Persist to all tables
+    result = await asyncio.to_thread(persist_ingestion, payload, validation, db)
+
+    return result
 
 
 # ===========================================================================
@@ -1315,121 +1410,32 @@ async def get_cash_count(
 
 
 # ---------------------------------------------------------------------------
-# 4.3.5 — Daily Context (POST + PUT)
+# 4.3.5 — Daily Context (POST + PUT) — DEPRECATED (HTTP 410 Gone)
 # ---------------------------------------------------------------------------
 
-class DailyContextTags(BaseModel):
-    clima: Optional[Literal["lluvia", "calor", "frio"]] = None
-    equipo: Optional[Literal["falla_maquina", "mantenimiento"]] = None
-    evento: Optional[Literal["festivo", "obra_vial", "promocion"]] = None
-    personal: Optional[Literal["falta_staff", "capacitacion"]] = None
-    otros: Optional[str] = Field(default=None, max_length=500)
 
-
-class DailyContextPayload(BaseModel):
-    business_id: str
-    date: str  # YYYY-MM-DD
-    tags: DailyContextTags
-
-
-@app.post("/daily-context", status_code=201)
-async def create_daily_context(payload: DailyContextPayload):
+@app.post("/daily-context")
+async def create_daily_context():
     """
-    POST /daily-context
-    Registra los tags de contexto para un negocio y fecha.
-    Spec: n03_human_input_endpoints.md §4
+    POST /daily-context — DEPRECATED (HTTP 410 Gone)
+    daily_context fue retirado del pipeline en la sesión de codificación.
     """
-    db = get_supabase()
-
-    # 1. Verificar business_id existe
-    biz = db.table("businesses").select("id").eq("id", payload.business_id).execute()
-    if not biz.data:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Negocio '{payload.business_id}' no encontrado.",
-        )
-
-    # 2. Verificar que no existe contexto para business_id + date
-    existing = (
-        db.table("daily_context")
-        .select("id")
-        .eq("business_id", payload.business_id)
-        .eq("date", payload.date)
-        .execute()
+    raise HTTPException(
+        status_code=410,
+        detail="daily_context fue retirado del pipeline. Este endpoint ya no está disponible."
     )
-    if existing.data:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Ya existe contexto para business_id='{payload.business_id}' "
-                f"y date='{payload.date}'. Usar PUT para actualizar."
-            ),
-        )
-
-    # 3. Insertar en daily_context con tags como JSONB
-    # Los campos null se persisten como null, nunca como string vacío
-    context_id = str(uuid4())
-    now_iso = datetime.now(timezone.utc).isoformat()
-    tags_dict = payload.tags.model_dump()  # None values preserved as null
-
-    db.table("daily_context").insert(
-        {
-            "id": context_id,
-            "business_id": payload.business_id,
-            "date": payload.date,
-            "tags": tags_dict,
-            "created_at": now_iso,
-        }
-    ).execute()
-
-    # 4. Retornar el registro creado con context_id
-    return {
-        "context_id": context_id,
-        "business_id": payload.business_id,
-        "date": payload.date,
-        "tags": tags_dict,
-        "created_at": now_iso,
-    }
 
 
 @app.put("/daily-context/{context_id}")
-async def update_daily_context(context_id: str, payload: DailyContextPayload):
+async def update_daily_context(context_id: str):
     """
-    PUT /daily-context/{context_id}
-    Actualiza los tags de un contexto ya registrado.
-    Spec: n03_human_input_endpoints.md §4
+    PUT /daily-context/{context_id} — DEPRECATED (HTTP 410 Gone)
+    daily_context fue retirado del pipeline en la sesión de codificación.
     """
-    db = get_supabase()
-
-    # 1. Verificar que context_id existe
-    existing = (
-        db.table("daily_context").select("*").eq("id", context_id).execute()
+    raise HTTPException(
+        status_code=410,
+        detail="daily_context fue retirado del pipeline. Este endpoint ya no está disponible."
     )
-    if not existing.data:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Contexto '{context_id}' no encontrado.",
-        )
-
-    # 2. Actualizar tags (null values preserved as null, nunca string vacío)
-    now_iso = datetime.now(timezone.utc).isoformat()
-    tags_dict = payload.tags.model_dump()
-
-    db.table("daily_context").update(
-        {
-            "tags": tags_dict,
-            "updated_at": now_iso,
-        }
-    ).eq("id", context_id).execute()
-
-    # 3. Retornar el registro actualizado
-    return {
-        "context_id": context_id,
-        "business_id": payload.business_id,
-        "date": payload.date,
-        "tags": tags_dict,
-        "updated_at": now_iso,
-    }
 
 
 # ===========================================================================
@@ -1566,7 +1572,7 @@ async def run_audit(payload: AuditRunPayload):
         1. Verificar que el negocio existe (404 si no)
         2. Verificar que S3 corrió — hay métricas active en metric_status (409 si no)
         3. Recuperar CalcResult[] desde audit_results (node_id="S3")
-        4. Recuperar daily_context.tags del día
+        4. daily_context_tags = None (daily_context fue retirado del pipeline)
         5. Ejecutar ForensicCFOAgent.run()
         6. Persistir ForensicReport en audit_results con node_id="S4"
         7. Retornar ForensicReport
@@ -1609,21 +1615,8 @@ async def run_audit(payload: AuditRunPayload):
             detail="S3 corrió pero no produjo resultados. Verificar datos de ingesta.",
         )
 
-    # 4. Recuperar daily_context.tags del día (opcional — no bloquea si no existe)
+    # 4. daily_context fue retirado del pipeline — siempre None
     daily_context_tags: Optional[dict] = None
-    try:
-        ctx_resp = (
-            db.table("daily_context")
-            .select("tags")
-            .eq("business_id", payload.business_id)
-            .eq("date", payload.date)
-            .single()
-            .execute()
-        )
-        if ctx_resp.data:
-            daily_context_tags = ctx_resp.data.get("tags")
-    except Exception:
-        pass  # daily_context es opcional — observed_causality será null
 
     # 5. Ejecutar ForensicCFOAgent
     agent = ForensicCFOAgent()
@@ -1787,6 +1780,74 @@ async def orchestrator_status(run_id: str):
         "date": row.get("date"),
         "pipeline_status": result_data.get("pipeline_status", "completed"),
         "current_node": "N05_synthesis",
+        "completed_at": row.get("created_at"),
+    }
+
+
+@app.get("/orchestrator/result/{run_id}")
+async def orchestrator_result(run_id: str):
+    """
+    GET /orchestrator/result/{run_id}
+    Retorna el OrchestratorResult completo persistido por N05.
+    Usado por el dashboard para renderizar resultados.
+    """
+    db = get_supabase()
+
+    # Buscar por run_id en audit_results (N05 guarda el resultado completo)
+    result = (
+        db.table("audit_results")
+        .select("*")
+        .eq("id", run_id)
+        .eq("node_id", "N05")
+        .execute()
+    )
+
+    if not result.data:
+        # Intentar buscar por run_id en la columna run_id
+        result = (
+            db.table("audit_results")
+            .select("*")
+            .eq("run_id", run_id)
+            .eq("node_id", "N05")
+            .execute()
+        )
+
+    if not result.data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Resultado para run '{run_id}' no encontrado.",
+        )
+
+    row = result.data[0]
+    result_data = row.get("result_data") or {}
+
+    # Reconstruir OrchestratorResult desde result_data
+    return {
+        "run_id": run_id,
+        "business_id": row.get("business_id"),
+        "date": row.get("date"),
+        "archetype": result_data.get("archetype", row.get("archetype", "Operative Genius")),
+        "pipeline_status": result_data.get("pipeline_status", "completed"),
+        "sequential_results": result_data.get("sequential_results", {
+            "active_metrics": [],
+            "calc_results": [],
+            "forensic_report": result_data.get("forensic_report", {
+                "business_id": row.get("business_id"),
+                "date": row.get("date"),
+                "risk_level": "low",
+                "anomalies": [],
+                "evidence_sources": [],
+                "observed_causality": None,
+                "generated_at": row.get("created_at"),
+            }),
+            "audit_insights": result_data.get("audit_insights", []),
+        }),
+        "escalation": result_data.get("escalation", {
+            "triggered": False,
+            "reason": None,
+            "layer2_run_id": None,
+        }),
+        "dormant_metrics": result_data.get("dormant_metrics", []),
         "completed_at": row.get("created_at"),
     }
 

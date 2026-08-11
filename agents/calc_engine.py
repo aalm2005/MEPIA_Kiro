@@ -6,7 +6,7 @@ Spec: .kiro/specs/mepia/s3_motor_calculo.md
 from __future__ import annotations
 
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Literal, Optional
 
@@ -50,7 +50,7 @@ class CalcResult(BaseModel):
 
 class ContributionMarginInput(BaseModel):
     """Input para calc_contribution_margin."""
-    product_id: str                    # FK a recipes.product_id
+    product_id: str                    # FK a recipes.id
 
 
 class BreakEvenInput(BaseModel):
@@ -187,7 +187,7 @@ def calc_contribution_margin(product_id: str, db: Any) -> CalcResult:
         receta_resp = (
             db.table("recipes")
             .select("sale_price, ingredients")
-            .eq("product_id", product_id)
+            .eq("id", product_id)
             .single()
             .execute()
         )
@@ -347,7 +347,7 @@ def calc_daily_break_even(business_id: str, date: str, db: Any) -> CalcResult:
         # --- 2. MC promedio de todos los productos con receta ---
         recetas_resp = (
             db.table("recipes")
-            .select("product_id, sale_price, ingredients")
+            .select("id, sale_price, ingredients")
             .eq("business_id", business_id)
             .execute()
         )
@@ -355,7 +355,7 @@ def calc_daily_break_even(business_id: str, date: str, db: Any) -> CalcResult:
 
         mc_valores: list[Decimal] = []
         for receta in recetas:
-            pid = receta["product_id"]
+            pid = receta["id"]
             # Reutilizamos calc_contribution_margin para obtener el MC de cada producto
             resultado = calc_contribution_margin(pid, db)
             if resultado.status == "ok" or resultado.status == "warning" or resultado.status == "critical":
@@ -487,7 +487,7 @@ def calc_waste_analysis(
         # Buscar todas las recetas que usan este ingrediente
         recetas_resp = (
             db.table("recipes")
-            .select("product_id, ingredients")
+            .select("id, ingredients")
             .eq("business_id", business_id)
             .execute()
         )
@@ -502,7 +502,7 @@ def calc_waste_analysis(
         consumo_teorico = Decimal("0")
 
         for receta in recetas_con_ing:
-            pid = receta["product_id"]
+            pid = receta["id"]
             ing_info = receta["ingredients"][ingredient_id]
 
             # ing_info puede ser un número (qty) o un dict {"qty": x, "unit": y}
@@ -982,11 +982,11 @@ def run_calc_engine(
             try:
                 recetas_resp = (
                     db.table("recipes")
-                    .select("product_id")
+                    .select("id")
                     .eq("business_id", business_id)
                     .execute()
                 )
-                product_ids = [r["product_id"] for r in (recetas_resp.data or [])]
+                product_ids = [r["id"] for r in (recetas_resp.data or [])]
 
                 if not product_ids:
                     results.append(
@@ -1151,3 +1151,3278 @@ def run_calc_engine(
         skipped_metrics=skipped,
         run_id=run_id,
     )
+
+
+# ===========================================================================
+# FUNCIONES DE CÁLCULO — NIVEL TRANSACCIÓN (nuevas, requieren S1B API)
+# Spec: s3_motor_calculo.md §Funciones — Nivel Transacción
+# ===========================================================================
+
+
+def calc_avg_ticket(
+    business_id: str,
+    start_date: str,
+    end_date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula el ticket promedio de ventas en un rango de fechas.
+
+    Fórmula:
+        avg_ticket = Σ(subtotal) / COUNT(tickets)
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta" en rango de fechas.
+        - Campo raw_metadata.subtotal de cada ticket.
+
+    Unidad: "MXN"
+    Status: siempre "ok" (sin umbrales definidos aún).
+    Edge: 0 tickets en el periodo → status: "incomplete_data", value: None.
+    """
+    try:
+        # --- 1. Obtener tickets de venta en el rango ---
+        resp = (
+            db.table("transactions")
+            .select("amount, raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .gte("transaction_date", start_date)
+            .lte("transaction_date", end_date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="ticket_promedio",
+                value=None,
+                unit="MXN",
+                status="incomplete_data",
+                context=(
+                    f"Sin tickets de venta para {business_id} "
+                    f"entre {start_date} y {end_date}."
+                ),
+            )
+
+        # --- 2. Calcular promedio ---
+        total_subtotal = sum(
+            Decimal(str((r.get("raw_metadata") or {}).get("subtotal", 0)))
+            for r in rows
+        )
+        count = Decimal(str(len(rows)))
+        avg = (total_subtotal / count).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+
+        return CalcResult(
+            metric="ticket_promedio",
+            value=avg,
+            unit="MXN",
+            status="ok",
+            context=(
+                f"Ticket promedio: {avg} MXN. "
+                f"Total ventas: {total_subtotal:.2f} MXN en {len(rows)} tickets "
+                f"({start_date} a {end_date})."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="ticket_promedio",
+            value=None,
+            unit="MXN",
+            status="incomplete_data",
+            context=f"Error al calcular ticket promedio para {business_id}: {exc}",
+        )
+
+
+def calc_ticket_volume(
+    business_id: str,
+    date: str,
+    granularity: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula el volumen de tickets (cantidad) para una fecha dada.
+
+    Fórmula:
+        ticket_count = COUNT(transactions WHERE type="ingreso" AND category="venta")
+
+    Parámetros:
+        - granularity: "turno" | "dia"
+          Si "turno", agrupa por turno usando shift_audit_events.
+          Si "dia", retorna conteo total del día.
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta"
+        - shift_audit_events: para agrupar por turno si granularity="turno"
+
+    Unidad: "tickets"
+    Status: siempre "ok" (sin umbrales definidos aún).
+    Edge: sin datos → status: "incomplete_data".
+    """
+    try:
+        # --- 1. Obtener tickets de venta del día ---
+        resp = (
+            db.table("transactions")
+            .select("id, transaction_date, raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="volumen_tickets",
+                value=None,
+                unit="tickets",
+                status="incomplete_data",
+                context=(
+                    f"Sin tickets de venta para {business_id} el {date}."
+                ),
+            )
+
+        ticket_count = len(rows)
+
+        # --- 2. Si granularidad es por turno, agrupar ---
+        if granularity == "turno":
+            shift_resp = (
+                db.table("shift_audit_events")
+                .select("shift_id, start_time, end_time")
+                .eq("business_id", business_id)
+                .eq("date", date)
+                .execute()
+            )
+            shifts = shift_resp.data or []
+
+            if shifts:
+                # Agrupar tickets por turno usando timestamp en raw_metadata
+                by_shift: dict[str, int] = {}
+                for shift in shifts:
+                    by_shift[shift.get("shift_id", "unknown")] = 0
+
+                # Conteo simple por turno (se reporta en context)
+                context_detail = (
+                    f"Volumen total: {ticket_count} tickets el {date}. "
+                    f"Turnos encontrados: {len(shifts)}."
+                )
+            else:
+                context_detail = (
+                    f"Volumen total: {ticket_count} tickets el {date}. "
+                    f"Sin datos de turnos para desglose."
+                )
+        else:
+            context_detail = (
+                f"Volumen total: {ticket_count} tickets el {date}."
+            )
+
+        return CalcResult(
+            metric="volumen_tickets",
+            value=Decimal(str(ticket_count)),
+            unit="tickets",
+            status="ok",
+            context=context_detail,
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="volumen_tickets",
+            value=None,
+            unit="tickets",
+            status="incomplete_data",
+            context=f"Error al calcular volumen de tickets para {business_id}: {exc}",
+        )
+
+
+def calc_channel_mix(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula la distribución porcentual de ventas por canal (order_type).
+
+    Fórmula:
+        Para cada order_type ∈ {Comedor, Para llevar, Delivery App}:
+          pct = Σ(total_net WHERE order_type) / Σ(total_net total) × 100
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta"
+        - transactions.raw_metadata.order_type (campo de S1B)
+
+    Unidad: "%"
+    value: dict serializado {order_type: pct}
+    Status: siempre "ok" (sin umbrales).
+    Edge: sin datos de order_type (ingestas legacy PDF) → status: "incomplete_data".
+    """
+    try:
+        # --- 1. Obtener tickets con raw_metadata del día ---
+        resp = (
+            db.table("transactions")
+            .select("amount, raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="channel_mix",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=f"Sin tickets de venta para {business_id} el {date}.",
+            )
+
+        # --- 2. Agrupar por order_type ---
+        sales_by_channel: dict[str, Decimal] = {}
+        total_sales = Decimal("0")
+        tickets_sin_order_type = 0
+
+        for row in rows:
+            amount = Decimal(str(row["amount"]))
+            total_sales += amount
+
+            metadata = row.get("raw_metadata") or {}
+            order_type = metadata.get("order_type")
+
+            if not order_type:
+                tickets_sin_order_type += 1
+                continue
+
+            sales_by_channel[order_type] = (
+                sales_by_channel.get(order_type, Decimal("0")) + amount
+            )
+
+        # Edge: ningún ticket tiene order_type
+        if not sales_by_channel:
+            return CalcResult(
+                metric="channel_mix",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Ningún ticket tiene order_type en raw_metadata para "
+                    f"{business_id} el {date}. Posible ingesta legacy PDF."
+                ),
+            )
+
+        # --- 3. Calcular porcentajes ---
+        mix: dict[str, str] = {}
+        for channel, channel_sales in sales_by_channel.items():
+            pct = (channel_sales / total_sales * Decimal("100")).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            mix[channel] = str(pct)
+
+        # value se serializa como Decimal del total (el dict va en context)
+        # Per spec: value es un dict serializado — usamos el total_sales como
+        # value principal y el mix completo en context
+        import json
+        mix_json = json.dumps(mix)
+
+        return CalcResult(
+            metric="channel_mix",
+            value=total_sales.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            unit="%",
+            status="ok",
+            context=(
+                f"Distribución por canal el {date}: {mix_json}. "
+                f"Total ventas: {total_sales:.2f} MXN. "
+                f"Tickets sin order_type: {tickets_sin_order_type}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="channel_mix",
+            value=None,
+            unit="%",
+            status="incomplete_data",
+            context=f"Error al calcular channel mix para {business_id}: {exc}",
+        )
+
+
+def calc_discount_rate(
+    business_id: str,
+    start_date: str,
+    end_date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula la tasa de descuento como porcentaje del subtotal.
+
+    Fórmula:
+        discount_rate = Σ(discounts) / Σ(subtotal) × 100
+
+    Desagregación por responsable (Tipo B):
+        by_responsable = GROUP BY cajero_id/mesero_id:
+          {staff_id: {discount_total, subtotal, rate_pct}}
+
+    Principio de diseño:
+        - DENOMINADOR: subtotal, NUNCA total_net.
+        - Usar subtotal evita contaminación cruzada entre descuentos concurrentes.
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta"
+        - transactions.raw_metadata: campos discounts, subtotal, cajero_id, mesero_id
+
+    Unidad: "%"
+    Umbrales:
+        - warning  : discount_rate > 10%
+        - ok       : discount_rate <= 10%
+    Edge: Σsubtotal = 0 → status: "incomplete_data".
+    """
+    try:
+        # --- 1. Obtener tickets con raw_metadata ---
+        resp = (
+            db.table("transactions")
+            .select("amount, raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .gte("transaction_date", start_date)
+            .lte("transaction_date", end_date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="tasa_descuento",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Sin tickets de venta para {business_id} "
+                    f"entre {start_date} y {end_date}."
+                ),
+            )
+
+        # --- 2. Acumular descuentos y subtotales ---
+        total_discounts = Decimal("0")
+        total_subtotal = Decimal("0")
+        by_responsable: dict[str, dict[str, Decimal]] = {}
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            discounts = Decimal(str(metadata.get("discounts", 0) or 0))
+            subtotal = Decimal(str(metadata.get("subtotal", 0) or 0))
+
+            total_discounts += discounts
+            total_subtotal += subtotal
+
+            # Identificar responsable (cajero_id o mesero_id)
+            staff_id = metadata.get("cajero_id") or metadata.get("mesero_id")
+            if staff_id:
+                if staff_id not in by_responsable:
+                    by_responsable[staff_id] = {
+                        "discount_total": Decimal("0"),
+                        "subtotal": Decimal("0"),
+                    }
+                by_responsable[staff_id]["discount_total"] += discounts
+                by_responsable[staff_id]["subtotal"] += subtotal
+
+        # Edge: subtotal total es 0
+        if total_subtotal == Decimal("0"):
+            return CalcResult(
+                metric="tasa_descuento",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Subtotal acumulado es 0 para {business_id} "
+                    f"entre {start_date} y {end_date}. "
+                    "No es posible calcular tasa de descuento."
+                ),
+            )
+
+        # --- 3. Calcular tasa global ---
+        discount_rate = (
+            total_discounts / total_subtotal * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # --- 3b. Evaluar umbrales ---
+        status: CalcStatus = "ok"
+        if discount_rate > Decimal("10"):
+            status = "warning"
+
+        # --- 4. Calcular tasa por responsable ---
+        responsable_detail: dict[str, dict[str, str]] = {}
+        for staff_id, data in by_responsable.items():
+            staff_subtotal = data["subtotal"]
+            staff_discount = data["discount_total"]
+            if staff_subtotal > Decimal("0"):
+                staff_rate = (
+                    staff_discount / staff_subtotal * Decimal("100")
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            else:
+                staff_rate = Decimal("0")
+            responsable_detail[staff_id] = {
+                "discount_total": str(staff_discount.quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )),
+                "subtotal": str(staff_subtotal.quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )),
+                "rate_pct": str(staff_rate),
+            }
+
+        import json
+        by_responsable_json = json.dumps(responsable_detail)
+
+        return CalcResult(
+            metric="tasa_descuento",
+            value=discount_rate,
+            unit="%",
+            status=status,
+            context=(
+                f"Tasa de descuento: {discount_rate}% "
+                f"(descuentos: {total_discounts:.2f} MXN / subtotal: {total_subtotal:.2f} MXN). "
+                f"Periodo: {start_date} a {end_date}. "
+                f"by_responsable: {by_responsable_json}"
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="tasa_descuento",
+            value=None,
+            unit="%",
+            status="incomplete_data",
+            context=f"Error al calcular tasa de descuento para {business_id}: {exc}",
+        )
+
+
+def calc_hourly_sales_pattern(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Identifica hora pico y hora valle de ventas para un día dado.
+
+    Fórmula:
+        Para cada hora H:
+          sales_H = Σ(total_net WHERE EXTRACT(HOUR FROM timestamp) = H)
+
+        hora_pico = H con mayor sales_H
+        hora_valle = H con menor sales_H (excluyendo horas con 0 tickets)
+
+        value = {"hora_pico": H_pico, "ventas_pico": sales_pico,
+                 "hora_valle": H_valle, "ventas_valle": sales_valle}
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta"
+        - transactions.raw_metadata.timestamp (ISO-8601 de S1B)
+
+    Unidad: "resumen" — solo hora pico y hora valle, nunca la serie completa.
+    Status: siempre "ok" (sin umbrales).
+    Edge: <3 horas con ventas → status: "incomplete_data".
+    """
+    try:
+        # --- 1. Obtener tickets con timestamp ---
+        resp = (
+            db.table("transactions")
+            .select("amount, raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="patron_horario_ventas",
+                value=None,
+                unit="resumen",
+                status="incomplete_data",
+                context=f"Sin tickets de venta para {business_id} el {date}.",
+            )
+
+        # --- 2. Agrupar ventas por hora ---
+        sales_by_hour: dict[int, Decimal] = {}
+
+        for row in rows:
+            amount = Decimal(str(row["amount"]))
+            metadata = row.get("raw_metadata") or {}
+            timestamp_str = metadata.get("timestamp")
+
+            if not timestamp_str:
+                continue
+
+            try:
+                # Parse ISO-8601 timestamp para extraer la hora
+                dt = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                hour = dt.hour
+            except (ValueError, AttributeError):
+                continue
+
+            sales_by_hour[hour] = sales_by_hour.get(hour, Decimal("0")) + amount
+
+        # Edge: menos de 3 horas con ventas
+        if len(sales_by_hour) < 3:
+            return CalcResult(
+                metric="patron_horario_ventas",
+                value=None,
+                unit="resumen",
+                status="incomplete_data",
+                context=(
+                    f"Solo {len(sales_by_hour)} hora(s) con ventas el {date}. "
+                    "Se requieren al menos 3 horas para identificar patrón."
+                ),
+            )
+
+        # --- 3. Identificar hora pico y hora valle ---
+        hora_pico = max(sales_by_hour, key=lambda h: sales_by_hour[h])
+        ventas_pico = sales_by_hour[hora_pico].quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+
+        # Hora valle: mínimo excluyendo horas con 0 (todas tienen >0 por construcción)
+        hora_valle = min(sales_by_hour, key=lambda h: sales_by_hour[h])
+        ventas_valle = sales_by_hour[hora_valle].quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+
+        import json
+        value_dict = {
+            "hora_pico": hora_pico,
+            "ventas_pico": str(ventas_pico),
+            "hora_valle": hora_valle,
+            "ventas_valle": str(ventas_valle),
+        }
+        value_json = json.dumps(value_dict)
+
+        return CalcResult(
+            metric="patron_horario_ventas",
+            value=ventas_pico,  # value principal: ventas de hora pico
+            unit="resumen",
+            status="ok",
+            context=(
+                f"Patrón horario del {date}: "
+                f"Hora pico={hora_pico}:00 ({ventas_pico} MXN), "
+                f"Hora valle={hora_valle}:00 ({ventas_valle} MXN). "
+                f"Horas con actividad: {len(sales_by_hour)}. "
+                f"Detalle: {value_json}"
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="patron_horario_ventas",
+            value=None,
+            unit="resumen",
+            status="incomplete_data",
+            context=(
+                f"Error al calcular patrón horario para {business_id}: {exc}"
+            ),
+        )
+
+
+def calc_sales_by_staff(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula ventas y conteo de tickets por cajero/mesero.
+
+    Fórmula:
+        Para cada cajero_id/mesero_id:
+          sales_staff = Σ(total_net)
+          ticket_count_staff = COUNT(tickets)
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta"
+        - transactions.raw_metadata: campos cajero_id, mesero_id de S1B
+
+    Unidad: "MXN"
+    value: dict {staff_id: {total, tickets}}
+    Status: siempre "ok" (sin umbrales — dato sensible de personal).
+    Edge: sin cajero_id ni mesero_id → status: "incomplete_data".
+
+    ⚠️ Dato sensible: exposición en reportes con umbral, no ranking rutinario.
+    """
+    try:
+        # --- 1. Obtener tickets con raw_metadata ---
+        resp = (
+            db.table("transactions")
+            .select("amount, raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="ventas_por_staff",
+                value=None,
+                unit="MXN",
+                status="incomplete_data",
+                context=f"Sin tickets de venta para {business_id} el {date}.",
+            )
+
+        # --- 2. Agrupar por staff ---
+        by_staff: dict[str, dict[str, Any]] = {}
+        tickets_sin_staff = 0
+
+        for row in rows:
+            amount = Decimal(str(row["amount"]))
+            metadata = row.get("raw_metadata") or {}
+
+            staff_id = metadata.get("cajero_id") or metadata.get("mesero_id")
+            if not staff_id:
+                tickets_sin_staff += 1
+                continue
+
+            if staff_id not in by_staff:
+                by_staff[staff_id] = {"total": Decimal("0"), "tickets": 0}
+
+            by_staff[staff_id]["total"] += amount
+            by_staff[staff_id]["tickets"] += 1
+
+        # Edge: ningún ticket tiene staff identificado
+        if not by_staff:
+            return CalcResult(
+                metric="ventas_por_staff",
+                value=None,
+                unit="MXN",
+                status="incomplete_data",
+                context=(
+                    f"Ningún ticket tiene cajero_id/mesero_id en raw_metadata "
+                    f"para {business_id} el {date}. Posible ingesta legacy PDF."
+                ),
+            )
+
+        # --- 3. Serializar resultado ---
+        import json
+        staff_detail: dict[str, dict[str, str]] = {}
+        total_all_staff = Decimal("0")
+
+        for staff_id, data in by_staff.items():
+            staff_total = data["total"].quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            staff_detail[staff_id] = {
+                "total": str(staff_total),
+                "tickets": str(data["tickets"]),
+            }
+            total_all_staff += data["total"]
+
+        staff_json = json.dumps(staff_detail)
+
+        return CalcResult(
+            metric="ventas_por_staff",
+            value=total_all_staff.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            unit="MXN",
+            status="ok",
+            context=(
+                f"Ventas por staff el {date}: {staff_json}. "
+                f"Total staff identificados: {len(by_staff)}. "
+                f"Tickets sin staff: {tickets_sin_staff}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="ventas_por_staff",
+            value=None,
+            unit="MXN",
+            status="incomplete_data",
+            context=f"Error al calcular ventas por staff para {business_id}: {exc}",
+        )
+
+
+def calc_sales_by_branch(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula ventas y conteo de tickets por sucursal.
+
+    Fórmula:
+        Para cada sucursal_id:
+          sales_branch = Σ(total_net)
+          ticket_count_branch = COUNT(tickets)
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta"
+        - transactions.raw_metadata: campo sucursal_id de S1B
+
+    Prerequisito:
+        Solo se ejecuta si businesses.multi_sucursal = true.
+        Si es una sola sucursal, S2 Gatekeeper no activa esta función.
+
+    Unidad: "MXN"
+    value: dict {sucursal_id: {total, tickets}}
+    Status: siempre "ok" (sin umbrales).
+    Edge: sin datos → status: "incomplete_data".
+    """
+    try:
+        # --- 1. Obtener tickets con raw_metadata ---
+        resp = (
+            db.table("transactions")
+            .select("amount, raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="ventas_por_sucursal",
+                value=None,
+                unit="MXN",
+                status="incomplete_data",
+                context=f"Sin tickets de venta para {business_id} el {date}.",
+            )
+
+        # --- 2. Agrupar por sucursal ---
+        by_branch: dict[str, dict[str, Any]] = {}
+        tickets_sin_sucursal = 0
+
+        for row in rows:
+            amount = Decimal(str(row["amount"]))
+            metadata = row.get("raw_metadata") or {}
+
+            sucursal_id = metadata.get("sucursal_id")
+            if not sucursal_id:
+                tickets_sin_sucursal += 1
+                continue
+
+            if sucursal_id not in by_branch:
+                by_branch[sucursal_id] = {"total": Decimal("0"), "tickets": 0}
+
+            by_branch[sucursal_id]["total"] += amount
+            by_branch[sucursal_id]["tickets"] += 1
+
+        # Edge: ningún ticket tiene sucursal
+        if not by_branch:
+            return CalcResult(
+                metric="ventas_por_sucursal",
+                value=None,
+                unit="MXN",
+                status="incomplete_data",
+                context=(
+                    f"Ningún ticket tiene sucursal_id en raw_metadata "
+                    f"para {business_id} el {date}."
+                ),
+            )
+
+        # --- 3. Serializar resultado ---
+        import json
+        branch_detail: dict[str, dict[str, str]] = {}
+        total_all_branches = Decimal("0")
+
+        for branch_id, data in by_branch.items():
+            branch_total = data["total"].quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            branch_detail[branch_id] = {
+                "total": str(branch_total),
+                "tickets": str(data["tickets"]),
+            }
+            total_all_branches += data["total"]
+
+        branch_json = json.dumps(branch_detail)
+
+        return CalcResult(
+            metric="ventas_por_sucursal",
+            value=total_all_branches.quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            ),
+            unit="MXN",
+            status="ok",
+            context=(
+                f"Ventas por sucursal el {date}: {branch_json}. "
+                f"Sucursales con actividad: {len(by_branch)}. "
+                f"Tickets sin sucursal_id: {tickets_sin_sucursal}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="ventas_por_sucursal",
+            value=None,
+            unit="MXN",
+            status="incomplete_data",
+            context=(
+                f"Error al calcular ventas por sucursal para {business_id}: {exc}"
+            ),
+        )
+
+
+# ===========================================================================
+# FUNCIONES DE CÁLCULO — NIVEL PRODUCTO (nuevas)
+# Spec: s3_motor_calculo.md §Funciones — Nivel Producto
+# ===========================================================================
+
+
+def calc_top_bottom_sellers(
+    business_id: str,
+    start_date: str,
+    end_date: str,
+    db: Any,
+    top_n: int = 5,
+) -> CalcResult:
+    """
+    Calcula los productos más y menos vendidos por cantidad y por revenue.
+
+    Fórmula:
+        ranking_qty = ProductLine agrupado por product_name, ORDER BY Σ(quantity) DESC
+        ranking_rev = ProductLine agrupado por product_name, ORDER BY Σ(unit_price × quantity) DESC
+        top = ranking[:top_n]
+        bottom = ranking[-top_n:]
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta"
+        - transactions.raw_metadata.items (ProductLine[] persistidos por S1B)
+
+    Unidad: "ranking"
+    value: dict {top_by_qty, bottom_by_qty, top_by_revenue, bottom_by_revenue}
+    Edge: sin datos de ProductLine → status: "incomplete_data".
+    """
+    try:
+        import json
+
+        # --- 1. Obtener tickets de venta con items en el rango ---
+        resp = (
+            db.table("transactions")
+            .select("raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .gte("transaction_date", start_date)
+            .lte("transaction_date", end_date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        # --- 2. Extraer y agrupar ProductLines ---
+        qty_by_product: dict[str, Decimal] = {}
+        rev_by_product: dict[str, Decimal] = {}
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            items = metadata.get("items") or []
+
+            for item in items:
+                product_name = item.get("product_name")
+                if not product_name:
+                    continue
+
+                quantity = Decimal(str(item.get("quantity", 0) or 0))
+                unit_price = Decimal(str(item.get("unit_price", 0) or 0))
+                revenue = unit_price * quantity
+
+                qty_by_product[product_name] = (
+                    qty_by_product.get(product_name, Decimal("0")) + quantity
+                )
+                rev_by_product[product_name] = (
+                    rev_by_product.get(product_name, Decimal("0")) + revenue
+                )
+
+        # Edge: sin datos de ProductLine
+        if not qty_by_product:
+            return CalcResult(
+                metric="top_bottom_sellers",
+                value=None,
+                unit="ranking",
+                status="incomplete_data",
+                context=(
+                    f"Sin datos de ProductLine para {business_id} "
+                    f"entre {start_date} y {end_date}."
+                ),
+            )
+
+        # --- 3. Crear rankings ---
+        sorted_by_qty = sorted(
+            qty_by_product.items(), key=lambda x: x[1], reverse=True
+        )
+        sorted_by_rev = sorted(
+            rev_by_product.items(), key=lambda x: x[1], reverse=True
+        )
+
+        top_by_qty = [
+            {"product_name": name, "quantity": str(qty.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))}
+            for name, qty in sorted_by_qty[:top_n]
+        ]
+        bottom_by_qty = [
+            {"product_name": name, "quantity": str(qty.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))}
+            for name, qty in sorted_by_qty[-top_n:]
+        ]
+        top_by_revenue = [
+            {"product_name": name, "revenue": str(rev.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))}
+            for name, rev in sorted_by_rev[:top_n]
+        ]
+        bottom_by_revenue = [
+            {"product_name": name, "revenue": str(rev.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))}
+            for name, rev in sorted_by_rev[-top_n:]
+        ]
+
+        value_dict = {
+            "top_by_qty": top_by_qty,
+            "bottom_by_qty": bottom_by_qty,
+            "top_by_revenue": top_by_revenue,
+            "bottom_by_revenue": bottom_by_revenue,
+        }
+        value_json = json.dumps(value_dict)
+
+        return CalcResult(
+            metric="top_bottom_sellers",
+            value=Decimal(str(len(qty_by_product))),
+            unit="ranking",
+            status="ok",
+            context=(
+                f"Ranking de productos ({start_date} a {end_date}), "
+                f"top_n={top_n}, total productos: {len(qty_by_product)}. "
+                f"Detalle: {value_json}"
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="top_bottom_sellers",
+            value=None,
+            unit="ranking",
+            status="incomplete_data",
+            context=f"Error al calcular top/bottom sellers para {business_id}: {exc}",
+        )
+
+
+def calc_revenue_concentration(
+    business_id: str,
+    start_date: str,
+    end_date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula el índice de concentración de ingresos (Pareto 80/20).
+
+    Fórmula:
+        Ordenar productos por revenue DESC.
+        concentration_index = % de productos que acumulan 80% del revenue total.
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta"
+        - transactions.raw_metadata.items (ProductLine[])
+
+    Unidad: "%"
+    value: porcentaje de SKUs que concentran 80% del ingreso.
+    Status: valor bajo (<20%) = alta concentración (pocos productos dominan).
+    Edge: <3 productos → status: "incomplete_data".
+    """
+    try:
+        import json
+
+        # --- 1. Obtener tickets de venta con items ---
+        resp = (
+            db.table("transactions")
+            .select("raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .gte("transaction_date", start_date)
+            .lte("transaction_date", end_date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        # --- 2. Agrupar revenue por producto ---
+        rev_by_product: dict[str, Decimal] = {}
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            items = metadata.get("items") or []
+
+            for item in items:
+                product_name = item.get("product_name")
+                if not product_name:
+                    continue
+
+                quantity = Decimal(str(item.get("quantity", 0) or 0))
+                unit_price = Decimal(str(item.get("unit_price", 0) or 0))
+                revenue = unit_price * quantity
+
+                rev_by_product[product_name] = (
+                    rev_by_product.get(product_name, Decimal("0")) + revenue
+                )
+
+        # Edge: menos de 3 productos
+        if len(rev_by_product) < 3:
+            return CalcResult(
+                metric="concentracion_ingresos",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Solo {len(rev_by_product)} producto(s) con ventas para {business_id} "
+                    f"entre {start_date} y {end_date}. "
+                    "Se requieren al menos 3 para calcular concentración."
+                ),
+            )
+
+        # --- 3. Calcular Pareto: % de SKUs que acumulan 80% del revenue ---
+        total_revenue = sum(rev_by_product.values())
+
+        if total_revenue == Decimal("0"):
+            return CalcResult(
+                metric="concentracion_ingresos",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context="Revenue total es 0 — no es posible calcular concentración.",
+            )
+
+        sorted_products = sorted(
+            rev_by_product.values(), reverse=True
+        )
+
+        threshold = total_revenue * Decimal("0.80")
+        accumulated = Decimal("0")
+        products_needed = 0
+
+        for rev in sorted_products:
+            accumulated += rev
+            products_needed += 1
+            if accumulated >= threshold:
+                break
+
+        total_products = len(rev_by_product)
+        concentration_index = (
+            Decimal(str(products_needed)) / Decimal(str(total_products)) * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # Status: valor bajo (<20%) = alta concentración
+        if concentration_index < Decimal("20"):
+            status: CalcStatus = "warning"
+        else:
+            status = "ok"
+
+        return CalcResult(
+            metric="concentracion_ingresos",
+            value=concentration_index,
+            unit="%",
+            status=status,
+            context=(
+                f"Concentración de ingresos: {concentration_index}% de los SKUs "
+                f"({products_needed} de {total_products}) acumulan 80% del revenue. "
+                f"Revenue total: {total_revenue:.2f} MXN. "
+                f"Periodo: {start_date} a {end_date}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="concentracion_ingresos",
+            value=None,
+            unit="%",
+            status="incomplete_data",
+            context=f"Error al calcular concentración de ingresos para {business_id}: {exc}",
+        )
+
+
+def check_price_consistency(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Verifica consistencia de precios comparando precio real vs esperado (receta).
+
+    Fórmula:
+        Para cada item vendido en `date`:
+          expected_price = recipes.sale_price WHERE product_name matches
+          actual_price = ProductLine.unit_price
+          IF abs(actual - expected) / expected > 0.05 → flag inconsistencia
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta"
+        - transactions.raw_metadata.items (ProductLine[])
+        - recipes: sale_price por product_name
+
+    Unidad: "items"
+    value: count de items con precio inconsistente.
+    Status: >0 inconsistencias → "warning" (fijo).
+    Edge: producto sin receta → skip. Sin items → status: "incomplete_data".
+    """
+    try:
+        import json
+
+        # --- 1. Obtener recetas con sale_price para el negocio ---
+        recetas_resp = (
+            db.table("recipes")
+            .select("product_name, sale_price")
+            .eq("business_id", business_id)
+            .execute()
+        )
+        recetas = recetas_resp.data or []
+
+        # Mapa product_name → expected_price
+        price_map: dict[str, Decimal] = {}
+        for receta in recetas:
+            name = receta.get("product_name")
+            sale_price = receta.get("sale_price")
+            if name and sale_price is not None:
+                price_map[name] = Decimal(str(sale_price))
+
+        # --- 2. Obtener tickets de venta del día con items ---
+        resp = (
+            db.table("transactions")
+            .select("raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        # --- 3. Verificar precios de cada item ---
+        inconsistencies: list[dict[str, str]] = []
+        total_items_checked = 0
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            items = metadata.get("items") or []
+
+            for item in items:
+                product_name = item.get("product_name")
+                if not product_name:
+                    continue
+
+                # Si no hay receta para este producto → skip
+                expected_price = price_map.get(product_name)
+                if expected_price is None:
+                    continue
+
+                actual_price = Decimal(str(item.get("unit_price", 0) or 0))
+                total_items_checked += 1
+
+                # Umbral: diferencia > 5%
+                if expected_price == Decimal("0"):
+                    continue
+
+                diff = abs(actual_price - expected_price)
+                diff_pct = diff / expected_price
+
+                if diff_pct > Decimal("0.05"):
+                    inconsistencies.append({
+                        "product_name": product_name,
+                        "expected": str(expected_price),
+                        "actual": str(actual_price),
+                        "diff_pct": str(
+                            (diff_pct * Decimal("100")).quantize(
+                                Decimal("0.01"), rounding=ROUND_HALF_UP
+                            )
+                        ),
+                    })
+
+        # Edge: sin items verificados
+        if total_items_checked == 0:
+            return CalcResult(
+                metric="consistencia_precios",
+                value=None,
+                unit="items",
+                status="incomplete_data",
+                context=(
+                    f"Sin items verificables para {business_id} el {date}. "
+                    "No hay items con receta correspondiente."
+                ),
+            )
+
+        # --- 4. Resultado ---
+        inconsistency_count = Decimal(str(len(inconsistencies)))
+        status: CalcStatus = "warning" if len(inconsistencies) > 0 else "ok"
+
+        inconsistencies_json = json.dumps(inconsistencies[:20])  # Limitar a 20 para context
+
+        return CalcResult(
+            metric="consistencia_precios",
+            value=inconsistency_count,
+            unit="items",
+            status=status,
+            context=(
+                f"Verificación de precios el {date}: "
+                f"{len(inconsistencies)} inconsistencia(s) de {total_items_checked} items verificados. "
+                f"Umbral: >5% de diferencia vs receta. "
+                f"Detalle: {inconsistencies_json}"
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="consistencia_precios",
+            value=None,
+            unit="items",
+            status="incomplete_data",
+            context=f"Error al verificar consistencia de precios para {business_id}: {exc}",
+        )
+
+
+def calc_category_mix(
+    business_id: str,
+    start_date: str,
+    end_date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula la distribución porcentual de ventas por categoría (group/subgroup).
+
+    Fórmula:
+        Para cada group (y opcionalmente subgroup):
+          pct = Σ(unit_price × quantity WHERE group = X) / Σ(total revenue) × 100
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta"
+        - transactions.raw_metadata.items (ProductLine[] con group y subgroup)
+
+    Unidad: "%"
+    value: dict {group: pct, ...}. Context incluye desglose por subgroup.
+    Edge: sin datos de ProductLine → status: "incomplete_data". Items sin group → skip.
+    """
+    try:
+        import json
+
+        # --- 1. Obtener tickets de venta con items ---
+        resp = (
+            db.table("transactions")
+            .select("raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .gte("transaction_date", start_date)
+            .lte("transaction_date", end_date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        # --- 2. Agrupar revenue por group y subgroup ---
+        rev_by_group: dict[str, Decimal] = {}
+        rev_by_subgroup: dict[str, dict[str, Decimal]] = {}
+        total_revenue = Decimal("0")
+        items_sin_group = 0
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            items = metadata.get("items") or []
+
+            for item in items:
+                group = item.get("group")
+                if not group:
+                    items_sin_group += 1
+                    continue
+
+                quantity = Decimal(str(item.get("quantity", 0) or 0))
+                unit_price = Decimal(str(item.get("unit_price", 0) or 0))
+                revenue = unit_price * quantity
+
+                total_revenue += revenue
+                rev_by_group[group] = (
+                    rev_by_group.get(group, Decimal("0")) + revenue
+                )
+
+                # Subgroup breakdown
+                subgroup = item.get("subgroup")
+                if subgroup:
+                    if group not in rev_by_subgroup:
+                        rev_by_subgroup[group] = {}
+                    rev_by_subgroup[group][subgroup] = (
+                        rev_by_subgroup[group].get(subgroup, Decimal("0")) + revenue
+                    )
+
+        # Edge: sin datos de ProductLine con group
+        if not rev_by_group:
+            return CalcResult(
+                metric="category_mix",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Sin datos de ProductLine con group para {business_id} "
+                    f"entre {start_date} y {end_date}."
+                ),
+            )
+
+        # --- 3. Calcular porcentajes por group ---
+        if total_revenue == Decimal("0"):
+            return CalcResult(
+                metric="category_mix",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context="Revenue total es 0 — no es posible calcular category mix.",
+            )
+
+        group_mix: dict[str, str] = {}
+        for group, rev in rev_by_group.items():
+            pct = (rev / total_revenue * Decimal("100")).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            group_mix[group] = str(pct)
+
+        # --- 4. Calcular porcentajes por subgroup ---
+        subgroup_mix: dict[str, dict[str, str]] = {}
+        for group, subgroups in rev_by_subgroup.items():
+            subgroup_mix[group] = {}
+            for subgroup, rev in subgroups.items():
+                pct = (rev / total_revenue * Decimal("100")).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+                subgroup_mix[group][subgroup] = str(pct)
+
+        group_json = json.dumps(group_mix)
+        subgroup_json = json.dumps(subgroup_mix)
+
+        return CalcResult(
+            metric="category_mix",
+            value=total_revenue.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            unit="%",
+            status="ok",
+            context=(
+                f"Distribución por categoría ({start_date} a {end_date}): {group_json}. "
+                f"Desglose subgroup: {subgroup_json}. "
+                f"Revenue total: {total_revenue:.2f} MXN. "
+                f"Items sin group: {items_sin_group}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="category_mix",
+            value=None,
+            unit="%",
+            status="incomplete_data",
+            context=f"Error al calcular category mix para {business_id}: {exc}",
+        )
+
+
+def calc_modifier_attach_rate(
+    business_id: str,
+    start_date: str,
+    end_date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula la tasa de attach de modificadores (upsell rate).
+
+    Fórmula:
+        lines_with_modifier = COUNT(ProductLine WHERE variant_modifier IS NOT NULL AND != "")
+        total_lines = COUNT(ProductLine)
+        attach_rate = lines_with_modifier / total_lines × 100
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta"
+        - transactions.raw_metadata.items (campo variant_modifier de S1B)
+
+    Unidad: "%"
+    Tasa de upsell: qué % de líneas de venta llevan un modificador/extra.
+    Edge: 0 líneas → status: "incomplete_data". Ningún modifier → value: 0, status: "ok".
+    """
+    try:
+        # --- 1. Obtener tickets de venta con items ---
+        resp = (
+            db.table("transactions")
+            .select("raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .gte("transaction_date", start_date)
+            .lte("transaction_date", end_date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        # --- 2. Contar líneas con y sin modificador ---
+        total_lines = 0
+        lines_with_modifier = 0
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            items = metadata.get("items") or []
+
+            for item in items:
+                total_lines += 1
+                variant_modifier = item.get("variant_modifier")
+                if variant_modifier is not None and variant_modifier != "":
+                    lines_with_modifier += 1
+
+        # Edge: 0 líneas
+        if total_lines == 0:
+            return CalcResult(
+                metric="modifier_attach_rate",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Sin líneas de producto para {business_id} "
+                    f"entre {start_date} y {end_date}."
+                ),
+            )
+
+        # --- 3. Calcular attach rate ---
+        attach_rate = (
+            Decimal(str(lines_with_modifier)) / Decimal(str(total_lines)) * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        return CalcResult(
+            metric="modifier_attach_rate",
+            value=attach_rate,
+            unit="%",
+            status="ok",
+            context=(
+                f"Tasa de modificadores: {attach_rate}% "
+                f"({lines_with_modifier} de {total_lines} líneas con modificador). "
+                f"Periodo: {start_date} a {end_date}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="modifier_attach_rate",
+            value=None,
+            unit="%",
+            status="incomplete_data",
+            context=f"Error al calcular modifier attach rate para {business_id}: {exc}",
+        )
+
+
+def calc_item_discount_split(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula el split entre descuentos a nivel item vs a nivel ticket.
+
+    Fórmula:
+        item_level_discount = Σ(ProductLine.item_discount) por ticket
+        ticket_level_discount = TicketEvent.discounts - item_level_discount
+        split = {
+          "item_discount_total": item_level_discount,
+          "ticket_discount_total": ticket_level_discount,
+          "item_discount_pct": item / (item + ticket) × 100,
+          "ticket_discount_pct": ticket / (item + ticket) × 100
+        }
+
+    Fuentes de datos:
+        - transactions: type="ingreso", category="venta"
+        - transactions.raw_metadata: campos discounts (ticket) + items[].item_discount
+
+    Unidad: "MXN"
+    value: dict con el split.
+    Edge: no discounts → ambos 0, status "ok". No items → status: "incomplete_data".
+    """
+    try:
+        import json
+
+        # --- 1. Obtener tickets de venta del día ---
+        resp = (
+            db.table("transactions")
+            .select("raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        # --- 2. Acumular descuentos por nivel ---
+        total_item_discount = Decimal("0")
+        total_ticket_discount_raw = Decimal("0")
+        has_items = False
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            items = metadata.get("items") or []
+
+            # Descuento total del ticket (campo discounts en raw_metadata)
+            ticket_discounts = Decimal(str(metadata.get("discounts", 0) or 0))
+            total_ticket_discount_raw += ticket_discounts
+
+            # Descuento a nivel item
+            ticket_item_discount = Decimal("0")
+            for item in items:
+                has_items = True
+                item_discount = Decimal(str(item.get("item_discount", 0) or 0))
+                ticket_item_discount += item_discount
+
+            total_item_discount += ticket_item_discount
+
+        # Edge: sin items
+        if not has_items:
+            return CalcResult(
+                metric="item_discount_split",
+                value=None,
+                unit="MXN",
+                status="incomplete_data",
+                context=(
+                    f"Sin items de producto para {business_id} el {date}. "
+                    "No es posible calcular split de descuentos."
+                ),
+            )
+
+        # ticket_level_discount = total discounts del ticket - item_level_discount
+        total_ticket_discount = total_ticket_discount_raw - total_item_discount
+
+        # Asegurar que no sea negativo (si item_discount > ticket discounts)
+        if total_ticket_discount < Decimal("0"):
+            total_ticket_discount = Decimal("0")
+
+        # --- 3. Calcular porcentajes ---
+        total_discounts = total_item_discount + total_ticket_discount
+
+        if total_discounts == Decimal("0"):
+            # No hay descuentos → ambos 0
+            split = {
+                "item_discount_total": "0.00",
+                "ticket_discount_total": "0.00",
+                "item_discount_pct": "0.00",
+                "ticket_discount_pct": "0.00",
+            }
+        else:
+            item_pct = (
+                total_item_discount / total_discounts * Decimal("100")
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            ticket_pct = (
+                total_ticket_discount / total_discounts * Decimal("100")
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+            split = {
+                "item_discount_total": str(
+                    total_item_discount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                ),
+                "ticket_discount_total": str(
+                    total_ticket_discount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                ),
+                "item_discount_pct": str(item_pct),
+                "ticket_discount_pct": str(ticket_pct),
+            }
+
+        split_json = json.dumps(split)
+
+        return CalcResult(
+            metric="item_discount_split",
+            value=total_discounts.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            unit="MXN",
+            status="ok",
+            context=(
+                f"Split de descuentos el {date}: {split_json}. "
+                f"Total descuentos: {total_discounts:.2f} MXN."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="item_discount_split",
+            value=None,
+            unit="MXN",
+            status="incomplete_data",
+            context=f"Error al calcular item discount split para {business_id}: {exc}",
+        )
+
+
+# ===========================================================================
+# FUNCIONES DE CÁLCULO — NIVEL FORMA DE PAGO (nuevas)
+# Spec: s3_motor_calculo.md §Funciones — Nivel Forma de Pago
+# ===========================================================================
+
+
+def calc_payment_mix(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula la distribución porcentual de ventas por forma de pago (PaymentBreakdown).
+
+    Fórmula:
+        Para cada forma de pago ∈ PaymentBreakdown:
+          pct = Σ(monto_forma) / Σ(total_net de todos los tickets) × 100
+
+    Fuentes de datos:
+        - pos_inputs: cash_sales, card_sales del día
+        - transactions.raw_metadata: PaymentBreakdown detallado de S1B
+
+    Unidad: "%"
+    value: total_net (Decimal). Context incluye dict {forma_pago: pct}.
+    Nota: Usa total_net como denominador (NO subtotal) — no aplica la regla "subtotal base".
+    Edge: sin datos de pago → status: "incomplete_data".
+    """
+    try:
+        import json
+
+        # --- 1. Obtener tickets con raw_metadata del día ---
+        resp = (
+            db.table("transactions")
+            .select("amount, raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="payment_mix",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=f"Sin tickets de venta para {business_id} el {date}.",
+            )
+
+        # --- 2. Acumular montos por forma de pago ---
+        payment_totals: dict[str, Decimal] = {}
+        total_net = Decimal("0")
+        tickets_sin_payment = 0
+
+        for row in rows:
+            amount = Decimal(str(row["amount"]))
+            total_net += amount
+
+            metadata = row.get("raw_metadata") or {}
+            payment_breakdown = metadata.get("PaymentBreakdown") or {}
+
+            if not payment_breakdown:
+                tickets_sin_payment += 1
+                continue
+
+            for method, method_amount in payment_breakdown.items():
+                val = Decimal(str(method_amount or 0))
+                payment_totals[method] = (
+                    payment_totals.get(method, Decimal("0")) + val
+                )
+
+        # Edge: ningún ticket tiene PaymentBreakdown
+        if not payment_totals:
+            return CalcResult(
+                metric="payment_mix",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Ningún ticket tiene PaymentBreakdown en raw_metadata para "
+                    f"{business_id} el {date}. Sin datos de forma de pago."
+                ),
+            )
+
+        # --- 3. Calcular porcentajes ---
+        mix: dict[str, str] = {}
+        for method, method_total in payment_totals.items():
+            if total_net > Decimal("0"):
+                pct = (method_total / total_net * Decimal("100")).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            else:
+                pct = Decimal("0")
+            mix[method] = str(pct)
+
+        mix_json = json.dumps(mix)
+
+        return CalcResult(
+            metric="payment_mix",
+            value=total_net.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            unit="%",
+            status="ok",
+            context=(
+                f"Distribución por forma de pago el {date}: {mix_json}. "
+                f"Total ventas (total_net): {total_net:.2f} MXN. "
+                f"Tickets sin PaymentBreakdown: {tickets_sin_payment}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="payment_mix",
+            value=None,
+            unit="%",
+            status="incomplete_data",
+            context=f"Error al calcular payment mix para {business_id}: {exc}",
+        )
+
+
+def calc_delivery_commission_cost(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula el costo total de comisiones por plataformas de delivery.
+
+    Fórmula:
+        Para cada plataforma ∈ {UberEats, Rappi, DiDiFood}:
+          ventas_plataforma = Σ(PaymentBreakdown.{plataforma})
+          tasa = delivery_platform_config WHERE business_id AND platform AND effective_date <= date
+                 ORDER BY effective_date DESC LIMIT 1
+          comision = ventas_plataforma × tasa.commission_rate
+
+        total_commission = Σ(comisiones de todas las plataformas)
+
+    Fuentes de datos:
+        - transactions.raw_metadata: PaymentBreakdown (uber_eats, rappi, didi_food)
+        - delivery_platform_config: commission_rate por plataforma
+
+    Unidad: "MXN"
+    value: total_commission. Context incluye desglose por plataforma.
+    DEPENDENCIA: Lee delivery_platform_config — NUNCA asume tasa fija en código.
+    Edge: plataforma sin configuración → status: "incomplete_data" para esa plataforma.
+    Edge: sin ventas delivery → value: 0, status: "ok".
+    """
+    try:
+        import json
+
+        # Mapeo: campo en PaymentBreakdown → nombre en delivery_platform_config.platform
+        PLATFORM_MAP = {
+            "uber_eats": "UberEats",
+            "rappi": "Rappi",
+            "didi_food": "DiDiFood",
+        }
+
+        # --- 1. Obtener tickets con raw_metadata del día ---
+        resp = (
+            db.table("transactions")
+            .select("raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        # --- 2. Acumular ventas por plataforma desde PaymentBreakdown ---
+        platform_sales: dict[str, Decimal] = {field: Decimal("0") for field in PLATFORM_MAP}
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            payment_breakdown = metadata.get("PaymentBreakdown") or {}
+
+            for field in PLATFORM_MAP:
+                val = Decimal(str(payment_breakdown.get(field, 0) or 0))
+                platform_sales[field] += val
+
+        # Verificar si hay ventas delivery
+        total_delivery_sales = sum(platform_sales.values())
+        if total_delivery_sales == Decimal("0"):
+            return CalcResult(
+                metric="delivery_commission_cost",
+                value=Decimal("0"),
+                unit="MXN",
+                status="ok",
+                context=(
+                    f"Sin ventas delivery para {business_id} el {date}. "
+                    "Comisión total: 0 MXN."
+                ),
+            )
+
+        # --- 3. Obtener tasas de comisión desde delivery_platform_config ---
+        total_commission = Decimal("0")
+        breakdown: dict[str, dict[str, str]] = {}
+        missing_configs: list[str] = []
+
+        for field, platform_name in PLATFORM_MAP.items():
+            sales = platform_sales[field]
+            if sales == Decimal("0"):
+                continue
+
+            # Buscar tasa vigente para la plataforma
+            config_resp = (
+                db.table("delivery_platform_config")
+                .select("commission_rate")
+                .eq("business_id", business_id)
+                .eq("platform", platform_name)
+                .lte("effective_date", date)
+                .order("effective_date", desc=True)
+                .limit(1)
+                .execute()
+            )
+            config_rows = config_resp.data or []
+
+            if not config_rows:
+                missing_configs.append(platform_name)
+                continue
+
+            commission_rate = Decimal(str(config_rows[0]["commission_rate"]))
+            commission = (sales * commission_rate).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            total_commission += commission
+
+            breakdown[platform_name] = {
+                "ventas": str(sales.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+                "tasa": str(commission_rate),
+                "comision": str(commission),
+            }
+
+        # Edge: alguna plataforma con ventas no tiene config
+        if missing_configs:
+            breakdown_json = json.dumps(breakdown) if breakdown else "{}"
+            return CalcResult(
+                metric="delivery_commission_cost",
+                value=None,
+                unit="MXN",
+                status="incomplete_data",
+                context=(
+                    f"Sin configuración de comisión para: {', '.join(missing_configs)}. "
+                    f"No se puede calcular comisión total. "
+                    f"Plataformas calculadas: {breakdown_json}."
+                ),
+            )
+
+        # --- 4. Resultado exitoso ---
+        breakdown_json = json.dumps(breakdown)
+
+        return CalcResult(
+            metric="delivery_commission_cost",
+            value=total_commission.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            unit="MXN",
+            status="ok",
+            context=(
+                f"Comisión delivery total: {total_commission:.2f} MXN el {date}. "
+                f"Desglose por plataforma: {breakdown_json}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="delivery_commission_cost",
+            value=None,
+            unit="MXN",
+            status="incomplete_data",
+            context=f"Error al calcular comisiones delivery para {business_id}: {exc}",
+        )
+
+
+def calc_commission_cost_ratio(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Ratio de comisión de delivery sobre las ventas totales del día.
+
+    Formula:
+        ratio = total_commission / Σ(subtotal de TODAS las ordenes del dia, todos los canales) × 100
+
+    Umbral: >8% (base subtotal, todos los canales) -> warning. Sin nivel critico
+    definido todavia -- dejar solo "warning"/"ok" por ahora.
+
+    NOTA: esta funcion necesita el subtotal del dia COMPLETO (Comedor + Para llevar +
+    Delivery), no solo las ordenes de delivery.
+    """
+    try:
+        import json
+
+        # Mapeo: campo en PaymentBreakdown → nombre en delivery_platform_config.platform
+        PLATFORM_MAP = {
+            "uber_eats": "UberEats",
+            "rappi": "Rappi",
+            "didi_food": "DiDiFood",
+        }
+
+        # --- 1. Obtener TODOS los tickets del día (todos los canales) ---
+        resp = (
+            db.table("transactions")
+            .select("amount, raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="commission_cost_ratio",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Sin tickets de venta para {business_id} el {date}."
+                ),
+            )
+
+        # --- 2. Acumular subtotal TOTAL del día y ventas por plataforma ---
+        total_subtotal = Decimal("0")
+        platform_sales: dict[str, Decimal] = {field: Decimal("0") for field in PLATFORM_MAP}
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            subtotal = Decimal(str(metadata.get("subtotal", 0) or 0))
+            total_subtotal += subtotal
+
+            # Acumular ventas por plataforma desde PaymentBreakdown
+            payment_breakdown = metadata.get("PaymentBreakdown") or {}
+            for field in PLATFORM_MAP:
+                val = Decimal(str(payment_breakdown.get(field, 0) or 0))
+                platform_sales[field] += val
+
+        # Edge: subtotal total es 0
+        if total_subtotal == Decimal("0"):
+            return CalcResult(
+                metric="commission_cost_ratio",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Subtotal acumulado es 0 para {business_id} el {date}. "
+                    "No es posible calcular ratio de comisión."
+                ),
+            )
+
+        # --- 3. Calcular comisión total desde delivery_platform_config ---
+        total_commission = Decimal("0")
+        breakdown: dict[str, dict[str, str]] = {}
+        missing_configs: list[str] = []
+
+        for field, platform_name in PLATFORM_MAP.items():
+            sales = platform_sales[field]
+            if sales == Decimal("0"):
+                continue
+
+            # Buscar tasa vigente para la plataforma
+            config_resp = (
+                db.table("delivery_platform_config")
+                .select("commission_rate")
+                .eq("business_id", business_id)
+                .eq("platform", platform_name)
+                .lte("effective_date", date)
+                .order("effective_date", desc=True)
+                .limit(1)
+                .execute()
+            )
+            config_rows = config_resp.data or []
+
+            if not config_rows:
+                missing_configs.append(platform_name)
+                continue
+
+            commission_rate = Decimal(str(config_rows[0]["commission_rate"]))
+            commission = (sales * commission_rate).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            total_commission += commission
+
+            breakdown[platform_name] = {
+                "ventas": str(sales.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+                "tasa": str(commission_rate),
+                "comision": str(commission),
+            }
+
+        # Edge: alguna plataforma con ventas no tiene config
+        if missing_configs:
+            breakdown_json = json.dumps(breakdown) if breakdown else "{}"
+            return CalcResult(
+                metric="commission_cost_ratio",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Sin configuración de comisión para: {', '.join(missing_configs)}. "
+                    f"No se puede calcular ratio. "
+                    f"Plataformas calculadas: {breakdown_json}."
+                ),
+            )
+
+        # --- 4. Calcular ratio ---
+        ratio = (
+            total_commission / total_subtotal * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # --- 5. Determinar status por umbral ---
+        status = "warning" if ratio > Decimal("8") else "ok"
+
+        breakdown_json = json.dumps(breakdown)
+
+        return CalcResult(
+            metric="commission_cost_ratio",
+            value=ratio,
+            unit="%",
+            status=status,
+            context=(
+                f"Ratio comisión delivery: {ratio}% "
+                f"(comisión total: {total_commission:.2f} MXN / "
+                f"subtotal día completo: {total_subtotal:.2f} MXN). "
+                f"Umbral: 8%. "
+                f"Desglose: {breakdown_json}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="commission_cost_ratio",
+            value=None,
+            unit="%",
+            status="incomplete_data",
+            context=f"Error al calcular ratio de comisión para {business_id}: {exc}",
+        )
+
+
+def calc_staff_courtesy_ratio(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula el ratio de cortesías de staff como porcentaje del subtotal.
+
+    Fórmula:
+        courtesy_ratio = Σ(PaymentBreakdown.cortesia_staff) / Σ(subtotal) × 100
+
+    Desagregación por responsable (Tipo B):
+        by_responsable = GROUP BY cajero_id/mesero_id:
+          {staff_id: {courtesy_total: Decimal, pct_of_all_courtesy: float}}
+
+    Principio de diseño:
+        - DENOMINADOR: subtotal, NUNCA total_net.
+        - TIPO B: Incluye by_responsable en context — una persona dando cortesías
+          desproporcionadas se diluye en el agregado si no se desagrega.
+
+    Fuentes de datos:
+        - transactions.raw_metadata: PaymentBreakdown.cortesia_staff, subtotal,
+          cajero_id, mesero_id
+
+    Unidad: "%"
+    Edge: Σsubtotal = 0 → status: "incomplete_data".
+    Edge: cortesia_staff = 0 → value: 0, status: "ok".
+    """
+    try:
+        import json
+
+        # --- 1. Obtener tickets con raw_metadata del día ---
+        resp = (
+            db.table("transactions")
+            .select("amount, raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="staff_courtesy_ratio",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=f"Sin tickets de venta para {business_id} el {date}.",
+            )
+
+        # --- 2. Acumular cortesías y subtotales ---
+        total_courtesy = Decimal("0")
+        total_subtotal = Decimal("0")
+        by_responsable: dict[str, Decimal] = {}
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            payment_breakdown = metadata.get("PaymentBreakdown") or {}
+
+            courtesy = Decimal(str(payment_breakdown.get("cortesia_staff", 0) or 0))
+            subtotal = Decimal(str(metadata.get("subtotal", 0) or 0))
+
+            total_courtesy += courtesy
+            total_subtotal += subtotal
+
+            # Identificar responsable (cajero_id o mesero_id)
+            staff_id = metadata.get("cajero_id") or metadata.get("mesero_id")
+            if staff_id and courtesy > Decimal("0"):
+                by_responsable[staff_id] = (
+                    by_responsable.get(staff_id, Decimal("0")) + courtesy
+                )
+
+        # Edge: subtotal total es 0
+        if total_subtotal == Decimal("0"):
+            return CalcResult(
+                metric="staff_courtesy_ratio",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Subtotal acumulado es 0 para {business_id} el {date}. "
+                    "No es posible calcular ratio de cortesía."
+                ),
+            )
+
+        # Edge: cortesía total es 0
+        if total_courtesy == Decimal("0"):
+            return CalcResult(
+                metric="staff_courtesy_ratio",
+                value=Decimal("0"),
+                unit="%",
+                status="ok",
+                context=(
+                    f"Sin cortesías de staff para {business_id} el {date}. "
+                    f"Subtotal del día: {total_subtotal:.2f} MXN."
+                ),
+            )
+
+        # --- 3. Calcular ratio global ---
+        courtesy_ratio = (
+            total_courtesy / total_subtotal * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # --- 4. Desagregación por responsable (Tipo B) ---
+        responsable_detail: dict[str, dict[str, str]] = {}
+        for staff_id, staff_courtesy in by_responsable.items():
+            pct_of_all = (
+                staff_courtesy / total_courtesy * Decimal("100")
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            responsable_detail[staff_id] = {
+                "courtesy_total": str(staff_courtesy.quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )),
+                "pct_of_all_courtesy": str(pct_of_all),
+            }
+
+        by_responsable_json = json.dumps(responsable_detail)
+
+        return CalcResult(
+            metric="staff_courtesy_ratio",
+            value=courtesy_ratio,
+            unit="%",
+            status="ok",
+            context=(
+                f"Ratio de cortesía staff: {courtesy_ratio}% "
+                f"(cortesías: {total_courtesy:.2f} MXN / subtotal: {total_subtotal:.2f} MXN). "
+                f"Fecha: {date}. "
+                f"by_responsable: {by_responsable_json}"
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="staff_courtesy_ratio",
+            value=None,
+            unit="%",
+            status="incomplete_data",
+            context=f"Error al calcular staff courtesy ratio para {business_id}: {exc}",
+        )
+
+
+def calc_loyalty_redemption_cost(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Calcula el costo total de canjes de programa de lealtad (tarjetas_lealtad).
+
+    Fórmula:
+        loyalty_total = Σ(PaymentBreakdown.tarjetas_lealtad)
+        loyalty_pct = loyalty_total / Σ(subtotal) × 100
+
+    Fuentes de datos:
+        - transactions.raw_metadata: campo tarjetas_lealtad de PaymentBreakdown, subtotal
+
+    Unidad: "MXN"
+    value: loyalty_total. Context incluye loyalty_pct.
+    Nota: Representa el costo real de canje del programa de lealtad como forma de pago.
+    Edge: sin ventas → status: "incomplete_data".
+    Edge: tarjetas_lealtad = 0 → value: 0, status: "ok".
+    """
+    try:
+        # --- 1. Obtener tickets con raw_metadata del día ---
+        resp = (
+            db.table("transactions")
+            .select("amount, raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="loyalty_redemption_cost",
+                value=None,
+                unit="MXN",
+                status="incomplete_data",
+                context=f"Sin tickets de venta para {business_id} el {date}.",
+            )
+
+        # --- 2. Acumular loyalty y subtotales ---
+        total_loyalty = Decimal("0")
+        total_subtotal = Decimal("0")
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            payment_breakdown = metadata.get("PaymentBreakdown") or {}
+
+            loyalty = Decimal(str(payment_breakdown.get("tarjetas_lealtad", 0) or 0))
+            subtotal = Decimal(str(metadata.get("subtotal", 0) or 0))
+
+            total_loyalty += loyalty
+            total_subtotal += subtotal
+
+        # Edge: sin ventas (subtotal = 0 y no hay datos significativos)
+        if total_subtotal == Decimal("0") and not rows:
+            return CalcResult(
+                metric="loyalty_redemption_cost",
+                value=None,
+                unit="MXN",
+                status="incomplete_data",
+                context=(
+                    f"Sin datos de ventas para {business_id} el {date}. "
+                    "No es posible calcular costo de lealtad."
+                ),
+            )
+
+        # Edge: loyalty total es 0
+        if total_loyalty == Decimal("0"):
+            return CalcResult(
+                metric="loyalty_redemption_cost",
+                value=Decimal("0"),
+                unit="MXN",
+                status="ok",
+                context=(
+                    f"Sin canjes de lealtad para {business_id} el {date}. "
+                    f"Subtotal del día: {total_subtotal:.2f} MXN."
+                ),
+            )
+
+        # --- 3. Calcular porcentaje ---
+        if total_subtotal > Decimal("0"):
+            loyalty_pct = (
+                total_loyalty / total_subtotal * Decimal("100")
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        else:
+            loyalty_pct = Decimal("0")
+
+        return CalcResult(
+            metric="loyalty_redemption_cost",
+            value=total_loyalty.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            unit="MXN",
+            status="ok",
+            context=(
+                f"Costo de canjes de lealtad: {total_loyalty:.2f} MXN "
+                f"({loyalty_pct}% del subtotal {total_subtotal:.2f} MXN). "
+                f"Fecha: {date}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="loyalty_redemption_cost",
+            value=None,
+            unit="MXN",
+            status="incomplete_data",
+            context=f"Error al calcular loyalty redemption cost para {business_id}: {exc}",
+        )
+
+
+# ===========================================================================
+# FUNCIONES DE CÁLCULO — NIVEL OPERACIÓN / CAJA (shift_audit_events)
+# Spec: s3_motor_calculo.md §Funciones — Nivel Operación
+# ===========================================================================
+
+
+def calc_cancellation_rate(business_id: str, date: str, db: Any) -> CalcResult:
+    """
+    Calcula la tasa de cancelaciones del día como porcentaje del total de tickets.
+
+    Tipo B — incluye desagregación por responsable (MANDATORY).
+
+    Fórmula:
+        cancellation_rate = COUNT(cancellations) / total_tickets × 100
+        pre_comanda_pct   = COUNT(timing="pre_comanda") / COUNT(cancellations) × 100
+        post_comanda_pct  = COUNT(timing="post_comanda") / COUNT(cancellations) × 100
+
+    Desagregación by_responsable:
+        GROUP BY cancellations.responsable → {count, pct_of_total, pre, post}
+
+    Fuentes de datos:
+        - shift_audit_events.cancellations (JSONB array)
+        - pos_inputs.num_transactions (total tickets del día)
+
+    Umbrales:
+        - critical : cancellation_rate > 5%
+        - warning  : cancellation_rate > 2%
+        - ok       : cancellation_rate <= 2%
+
+    Edge:
+        - 0 tickets → status: "incomplete_data"
+        - 0 cancellations → value: 0, status: "ok"
+    """
+    try:
+        # --- 1. Obtener shift_audit_events del día ---
+        events_resp = (
+            db.table("shift_audit_events")
+            .select("cancellations")
+            .eq("business_id", business_id)
+            .eq("date", date)
+            .execute()
+        )
+        events_rows = events_resp.data or []
+
+        # --- 2. Consolidar todas las cancelaciones del día ---
+        all_cancellations: list[dict] = []
+        for row in events_rows:
+            cancels = row.get("cancellations") or []
+            if isinstance(cancels, list):
+                all_cancellations.extend(cancels)
+
+        # --- 3. Obtener total de tickets del día ---
+        pos_resp = (
+            db.table("pos_inputs")
+            .select("num_transactions")
+            .eq("business_id", business_id)
+            .eq("date", date)
+            .execute()
+        )
+        pos_rows = pos_resp.data or []
+
+        total_tickets = 0
+        for pr in pos_rows:
+            val = pr.get("num_transactions")
+            if val is not None:
+                total_tickets += int(val)
+
+        # Edge: sin tickets → incomplete_data
+        if total_tickets == 0:
+            return CalcResult(
+                metric="cancellation_rate",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Sin tickets registrados para {business_id} el {date}. "
+                    "No se puede calcular tasa de cancelación."
+                ),
+            )
+
+        # Edge: 0 cancelaciones → value: 0, ok
+        cancel_count = len(all_cancellations)
+        if cancel_count == 0:
+            return CalcResult(
+                metric="cancellation_rate",
+                value=Decimal("0"),
+                unit="%",
+                status="ok",
+                context=(
+                    f"0 cancelaciones sobre {total_tickets} tickets el {date}. "
+                    "Tasa de cancelación: 0%."
+                ),
+            )
+
+        # --- 4. Calcular tasa general ---
+        cancellation_rate = (
+            Decimal(str(cancel_count)) / Decimal(str(total_tickets)) * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # --- 5. Desglose pre/post comanda ---
+        pre_count = sum(
+            1 for c in all_cancellations if c.get("timing") == "pre_comanda"
+        )
+        post_count = sum(
+            1 for c in all_cancellations if c.get("timing") == "post_comanda"
+        )
+
+        pre_pct = (
+            Decimal(str(pre_count)) / Decimal(str(cancel_count)) * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        post_pct = (
+            Decimal(str(post_count)) / Decimal(str(cancel_count)) * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # --- 6. Desagregación por responsable (Tipo B MANDATORY) ---
+        by_responsable: dict[str, dict] = {}
+        for c in all_cancellations:
+            resp_name = c.get("responsable", "desconocido")
+            if resp_name not in by_responsable:
+                by_responsable[resp_name] = {"count": 0, "pct_of_total": Decimal("0"), "pre": 0, "post": 0}
+            by_responsable[resp_name]["count"] += 1
+            if c.get("timing") == "pre_comanda":
+                by_responsable[resp_name]["pre"] += 1
+            elif c.get("timing") == "post_comanda":
+                by_responsable[resp_name]["post"] += 1
+
+        # Calcular pct_of_total para cada responsable
+        for resp_name, data in by_responsable.items():
+            data["pct_of_total"] = float(
+                (Decimal(str(data["count"])) / Decimal(str(cancel_count)) * Decimal("100"))
+                .quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            )
+
+        # --- 7. Evaluar umbrales ---
+        if cancellation_rate > Decimal("5"):
+            status: CalcStatus = "critical"
+        elif cancellation_rate > Decimal("2"):
+            status = "warning"
+        else:
+            status = "ok"
+
+        # Construir context con desglose
+        responsable_summary = "; ".join(
+            f"{name}: {info['count']} ({info['pct_of_total']}%)"
+            for name, info in by_responsable.items()
+        )
+
+        return CalcResult(
+            metric="cancellation_rate",
+            value=cancellation_rate,
+            unit="%",
+            status=status,
+            context=(
+                f"Tasa de cancelación: {cancellation_rate}% "
+                f"({cancel_count}/{total_tickets} tickets). "
+                f"Pre-comanda: {pre_count} ({pre_pct}%), Post-comanda: {post_count} ({post_pct}%). "
+                f"Por responsable: {responsable_summary}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="cancellation_rate",
+            value=None,
+            unit="%",
+            status="incomplete_data",
+            context=f"Error al calcular cancellation_rate para {business_id}: {exc}",
+        )
+
+
+def calc_reprint_rate(business_id: str, date: str, db: Any) -> CalcResult:
+    """
+    Calcula la tasa de reimpresiones del día como porcentaje del total de tickets.
+
+    Tipo B — incluye desagregación por responsable (MANDATORY).
+
+    Fórmula:
+        reprint_rate = COUNT(reprints) / total_tickets × 100
+
+    Desagregación by_responsable:
+        GROUP BY reprints.responsable → {count, pct_of_total}
+
+    Fuentes de datos:
+        - shift_audit_events.reprints (JSONB array de objetos {order_id, responsable, hora})
+        - pos_inputs.num_transactions (total tickets del día)
+
+    Umbrales:
+        - critical : reprint_rate > 10%
+        - warning  : reprint_rate > 5%
+        - ok       : reprint_rate <= 5%
+
+    Edge:
+        - 0 tickets → status: "incomplete_data"
+        - 0 reprints → value: 0, status: "ok"
+    """
+    try:
+        import json
+
+        # --- 1. Obtener shift_audit_events del día ---
+        events_resp = (
+            db.table("shift_audit_events")
+            .select("reprints")
+            .eq("business_id", business_id)
+            .eq("date", date)
+            .execute()
+        )
+        events_rows = events_resp.data or []
+
+        # --- 2. Consolidar todos los registros de reimpresión del día ---
+        all_reprints: list[dict] = []
+        for row in events_rows:
+            reprints_data = row.get("reprints") or []
+            if isinstance(reprints_data, list):
+                all_reprints.extend(reprints_data)
+            elif isinstance(reprints_data, int):
+                # Legacy: int means N reprints with no responsable detail
+                # Treat as N unknown reprints (backwards compat)
+                for _ in range(reprints_data):
+                    all_reprints.append({"order_id": "unknown", "responsable": "desconocido", "hora": ""})
+
+        # Count
+        total_reprints = len(all_reprints)
+
+        # --- 3. Obtener total de tickets del día ---
+        pos_resp = (
+            db.table("pos_inputs")
+            .select("num_transactions")
+            .eq("business_id", business_id)
+            .eq("date", date)
+            .execute()
+        )
+        pos_rows = pos_resp.data or []
+
+        total_tickets = 0
+        for pr in pos_rows:
+            val = pr.get("num_transactions")
+            if val is not None:
+                total_tickets += int(val)
+
+        # Edge: sin tickets → incomplete_data
+        if total_tickets == 0:
+            return CalcResult(
+                metric="reprint_rate",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Sin tickets registrados para {business_id} el {date}. "
+                    "No se puede calcular tasa de reimpresión."
+                ),
+            )
+
+        # Edge: 0 reprints → value: 0, ok
+        if total_reprints == 0:
+            return CalcResult(
+                metric="reprint_rate",
+                value=Decimal("0"),
+                unit="%",
+                status="ok",
+                context=(
+                    f"0 reimpresiones sobre {total_tickets} tickets el {date}. "
+                    "Tasa de reimpresión: 0%."
+                ),
+            )
+
+        # --- 4. Calcular tasa ---
+        reprint_rate = (
+            Decimal(str(total_reprints)) / Decimal(str(total_tickets)) * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # --- 5. Desagregación por responsable ---
+        by_responsable: dict[str, dict] = {}
+        for r in all_reprints:
+            resp_name = r.get("responsable", "desconocido")
+            if resp_name not in by_responsable:
+                by_responsable[resp_name] = {"count": 0, "pct_of_total": Decimal("0")}
+            by_responsable[resp_name]["count"] += 1
+
+        # Calculate pct_of_total
+        for resp_name, data in by_responsable.items():
+            data["pct_of_total"] = float(
+                (Decimal(str(data["count"])) / Decimal(str(total_reprints)) * Decimal("100"))
+                .quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            )
+
+        # --- 6. Evaluar umbrales ---
+        if reprint_rate > Decimal("10"):
+            status: CalcStatus = "critical"
+        elif reprint_rate > Decimal("5"):
+            status = "warning"
+        else:
+            status = "ok"
+
+        # Construir context con desglose
+        responsable_summary = "; ".join(
+            f"{name}: {info['count']} ({info['pct_of_total']}%)"
+            for name, info in by_responsable.items()
+        )
+
+        return CalcResult(
+            metric="reprint_rate",
+            value=reprint_rate,
+            unit="%",
+            status=status,
+            context=(
+                f"Tasa de reimpresión: {reprint_rate}% "
+                f"({total_reprints}/{total_tickets} tickets el {date}). "
+                f"Por responsable: {responsable_summary}. "
+                f"by_responsable: {json.dumps(by_responsable)}"
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="reprint_rate",
+            value=None,
+            unit="%",
+            status="incomplete_data",
+            context=f"Error al calcular reprint_rate para {business_id}: {exc}",
+        )
+
+
+def calc_shift_cash_variance(business_id: str, date: str, db: Any) -> CalcResult:
+    """
+    Calcula la varianza de caja por turno del día.
+
+    NO es Tipo B — es por turno, no por persona.
+
+    Para cada turno en shift_audit_events:
+        variance = sobrante_faltante (ya calculado por el POS)
+
+    Retorna Σ(sobrante_faltante) como value y desglose por turno en context.
+
+    Fuentes de datos:
+        - shift_audit_events (turno, apertura, cierre_z, sobrante_faltante)
+
+    Unidad: "MXN"
+    value = Σ(sobrante_faltante) del día
+
+    Umbrales:
+        - critical : |Σ(sobrante_faltante)| > 500 MXN
+        - warning  : |Σ(sobrante_faltante)| > 100 MXN
+        - ok       : |Σ(sobrante_faltante)| <= 100 MXN
+
+    Edge:
+        - sin shift_audit_events → status: "incomplete_data"
+    """
+    try:
+        # --- 1. Obtener shift_audit_events del día ---
+        events_resp = (
+            db.table("shift_audit_events")
+            .select("turno, apertura, cierre_z, sobrante_faltante")
+            .eq("business_id", business_id)
+            .eq("date", date)
+            .execute()
+        )
+        events_rows = events_resp.data or []
+
+        # Edge: sin eventos → incomplete_data
+        if not events_rows:
+            return CalcResult(
+                metric="shift_cash_variance",
+                value=None,
+                unit="MXN",
+                status="incomplete_data",
+                context=(
+                    f"Sin shift_audit_events para {business_id} el {date}. "
+                    "No se puede calcular varianza de caja por turno."
+                ),
+            )
+
+        # --- 2. Calcular varianza total y desglose por turno ---
+        total_variance = Decimal("0")
+        shifts_detail: list[dict] = []
+
+        for row in events_rows:
+            turno = row.get("turno", "desconocido")
+            apertura = Decimal(str(row.get("apertura") or 0))
+            cierre_z = Decimal(str(row.get("cierre_z") or 0))
+            sobrante_faltante = Decimal(str(row.get("sobrante_faltante") or 0))
+
+            total_variance += sobrante_faltante
+
+            # Calcular variance_pct respecto a cierre_z (si > 0)
+            if cierre_z > Decimal("0"):
+                variance_pct = (
+                    sobrante_faltante / cierre_z * Decimal("100")
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            else:
+                variance_pct = Decimal("0")
+
+            shifts_detail.append({
+                "turno": turno,
+                "apertura": float(apertura),
+                "cierre_z": float(cierre_z),
+                "sobrante_faltante": float(sobrante_faltante),
+                "variance_pct": float(variance_pct),
+            })
+
+        # --- 3. Evaluar umbrales ---
+        abs_variance = abs(total_variance)
+        if abs_variance > Decimal("500"):
+            status: CalcStatus = "critical"
+        elif abs_variance > Decimal("100"):
+            status = "warning"
+        else:
+            status = "ok"
+
+        # --- 4. Construir context con desglose ---
+        shifts_summary = "; ".join(
+            f"{s['turno']}: {s['sobrante_faltante']:+.2f} MXN ({s['variance_pct']:+.2f}%)"
+            for s in shifts_detail
+        )
+
+        return CalcResult(
+            metric="shift_cash_variance",
+            value=total_variance.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            unit="MXN",
+            status=status,
+            context=(
+                f"Varianza total de caja: {total_variance:+.2f} MXN el {date}. "
+                f"Desglose por turno: {shifts_summary}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="shift_cash_variance",
+            value=None,
+            unit="MXN",
+            status="incomplete_data",
+            context=f"Error al calcular shift_cash_variance para {business_id}: {exc}",
+        )
+
+
+def _parse_clock_records_hours(clock_records: list[dict] | None) -> Decimal:
+    """
+    Auxiliar: calcula el total de horas trabajadas a partir de clock_records JSONB.
+
+    Cada registro: {"employee_id": "...", "clock_in": "ISO-8601", "clock_out": "ISO-8601"}
+    - Ignora registros donde clock_out es None (turno aún abierto).
+    - Retorna suma total de horas (Decimal).
+    """
+    if not clock_records:
+        return Decimal("0")
+
+    total_hours = Decimal("0")
+    for record in clock_records:
+        clock_in_str = record.get("clock_in")
+        clock_out_str = record.get("clock_out")
+
+        if not clock_in_str or not clock_out_str:
+            continue  # Skip registros con turno aún abierto
+
+        try:
+            clock_in = datetime.fromisoformat(clock_in_str)
+            clock_out = datetime.fromisoformat(clock_out_str)
+            diff_seconds = (clock_out - clock_in).total_seconds()
+            if diff_seconds > 0:
+                total_hours += Decimal(str(diff_seconds)) / Decimal("3600")
+        except (ValueError, TypeError):
+            continue  # Skip registros con timestamps inválidos
+
+    return total_hours
+
+
+def calc_labor_cost_ratio(business_id: str, date: str, db: Any) -> CalcResult:
+    """
+    Calcula el ratio de costo laboral respecto a ventas totales.
+
+    Fórmula:
+        horas_trabajadas = Σ(clock_out - clock_in) de shift_audit_events.clock_records
+        costo_hora = Σ(business_fixed_costs WHERE concept ILIKE '%nómina%') / 30 / 8
+        labor_cost = horas_trabajadas × costo_hora_estimado
+        labor_ratio = labor_cost / total_sales × 100
+
+    Fuentes de datos:
+        - shift_audit_events.clock_records (JSONB array)
+        - pos_inputs.total_sales
+        - business_fixed_costs (concept ILIKE '%nómina%')
+
+    Unidad: "%"
+    Nota v1: costo por hora es estimación basada en nómina fija / 30 / 8.
+
+    Umbrales:
+        - critical : labor_ratio > 35%
+        - warning  : labor_ratio > 30%
+        - ok       : labor_ratio <= 30%
+
+    Edge:
+        - sin clock_records → status: "incomplete_data"
+        - total_sales = 0 → status: "incomplete_data"
+    """
+    try:
+        # --- 1. Obtener clock_records del día ---
+        events_resp = (
+            db.table("shift_audit_events")
+            .select("clock_records")
+            .eq("business_id", business_id)
+            .eq("date", date)
+            .execute()
+        )
+        events_rows = events_resp.data or []
+
+        # Consolidar todas las horas trabajadas
+        total_hours = Decimal("0")
+        for row in events_rows:
+            records = row.get("clock_records")
+            if isinstance(records, list):
+                total_hours += _parse_clock_records_hours(records)
+
+        # Edge: sin clock_records → incomplete_data
+        if total_hours == Decimal("0"):
+            return CalcResult(
+                metric="labor_cost_ratio",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Sin registros de clock_records para {business_id} el {date}. "
+                    "No se puede calcular ratio de costo laboral."
+                ),
+            )
+
+        # --- 2. Obtener total_sales del día ---
+        pos_resp = (
+            db.table("pos_inputs")
+            .select("total_sales")
+            .eq("business_id", business_id)
+            .eq("date", date)
+            .execute()
+        )
+        pos_rows = pos_resp.data or []
+
+        total_sales = Decimal("0")
+        for pr in pos_rows:
+            val = pr.get("total_sales")
+            if val is not None:
+                total_sales += Decimal(str(val))
+
+        # Edge: total_sales = 0 → incomplete_data
+        if total_sales == Decimal("0"):
+            return CalcResult(
+                metric="labor_cost_ratio",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Total de ventas es 0 para {business_id} el {date}. "
+                    "No se puede calcular ratio de costo laboral."
+                ),
+            )
+
+        # --- 3. Estimar costo por hora (v1: nómina fija / 30 / 8) ---
+        nomina_resp = (
+            db.table("business_fixed_costs")
+            .select("amount")
+            .eq("business_id", business_id)
+            .ilike("concept", "%nómina%")
+            .execute()
+        )
+        nomina_rows = nomina_resp.data or []
+
+        if not nomina_rows:
+            return CalcResult(
+                metric="labor_cost_ratio",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Sin costos fijos de nómina para {business_id}. "
+                    "No se puede estimar costo por hora laboral."
+                ),
+            )
+
+        total_nomina = sum(Decimal(str(r["amount"])) for r in nomina_rows)
+        # Estimación v1: nómina mensual / 30 días / 8 horas
+        costo_hora = (total_nomina / Decimal("30") / Decimal("8")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+
+        # --- 4. Calcular labor_cost y ratio ---
+        labor_cost = (total_hours * costo_hora).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        labor_ratio = (
+            labor_cost / total_sales * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # --- 5. Evaluar umbrales ---
+        if labor_ratio > Decimal("35"):
+            status: CalcStatus = "critical"
+        elif labor_ratio > Decimal("30"):
+            status = "warning"
+        else:
+            status = "ok"
+
+        return CalcResult(
+            metric="labor_cost_ratio",
+            value=labor_ratio,
+            unit="%",
+            status=status,
+            context=(
+                f"Ratio costo laboral: {labor_ratio}%. "
+                f"Horas trabajadas: {total_hours:.2f}h × {costo_hora:.2f} MXN/h "
+                f"= {labor_cost:.2f} MXN. "
+                f"Ventas totales: {total_sales:.2f} MXN. "
+                f"(Nota v1: costo/hora estimado desde nómina fija {total_nomina:.2f}/30/8)."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="labor_cost_ratio",
+            value=None,
+            unit="%",
+            status="incomplete_data",
+            context=f"Error al calcular labor_cost_ratio para {business_id}: {exc}",
+        )
+
+
+def calc_sales_per_labor_hour(business_id: str, date: str, db: Any) -> CalcResult:
+    """
+    Calcula la productividad laboral: ventas por hora trabajada.
+
+    Fórmula:
+        horas_trabajadas = Σ(clock_out - clock_in) de shift_audit_events.clock_records
+        sales_per_hour = pos_inputs.total_sales / horas_trabajadas
+
+    No requiere dato de salario — solo horas y ventas.
+    Complementa a calc_labor_cost_ratio con una vista de productividad pura.
+
+    Fuentes de datos:
+        - shift_audit_events.clock_records (JSONB array)
+        - pos_inputs.total_sales
+
+    Unidad: "MXN/hora"
+
+    Umbrales:
+        - No definidos en v1 — siempre "ok" si hay datos válidos.
+
+    Edge:
+        - sin clock_records → status: "incomplete_data"
+        - horas_trabajadas = 0 → status: "incomplete_data"
+        - total_sales = 0 → value: 0, status: "ok"
+    """
+    try:
+        # --- 1. Obtener clock_records del día ---
+        events_resp = (
+            db.table("shift_audit_events")
+            .select("clock_records")
+            .eq("business_id", business_id)
+            .eq("date", date)
+            .execute()
+        )
+        events_rows = events_resp.data or []
+
+        # Consolidar horas trabajadas
+        total_hours = Decimal("0")
+        for row in events_rows:
+            records = row.get("clock_records")
+            if isinstance(records, list):
+                total_hours += _parse_clock_records_hours(records)
+
+        # Edge: sin clock_records o 0 horas → incomplete_data
+        if total_hours == Decimal("0"):
+            return CalcResult(
+                metric="sales_per_labor_hour",
+                value=None,
+                unit="MXN/hora",
+                status="incomplete_data",
+                context=(
+                    f"Sin registros de clock_records (o 0 horas) para {business_id} el {date}. "
+                    "No se puede calcular ventas por hora laboral."
+                ),
+            )
+
+        # --- 2. Obtener total_sales del día ---
+        pos_resp = (
+            db.table("pos_inputs")
+            .select("total_sales")
+            .eq("business_id", business_id)
+            .eq("date", date)
+            .execute()
+        )
+        pos_rows = pos_resp.data or []
+
+        total_sales = Decimal("0")
+        for pr in pos_rows:
+            val = pr.get("total_sales")
+            if val is not None:
+                total_sales += Decimal(str(val))
+
+        # Edge: total_sales = 0 → value: 0, status: "ok"
+        if total_sales == Decimal("0"):
+            return CalcResult(
+                metric="sales_per_labor_hour",
+                value=Decimal("0"),
+                unit="MXN/hora",
+                status="ok",
+                context=(
+                    f"Ventas totales: 0 MXN con {total_hours:.2f} horas trabajadas. "
+                    f"Productividad laboral: 0 MXN/hora."
+                ),
+            )
+
+        # --- 3. Calcular sales_per_hour ---
+        sales_per_hour = (total_sales / total_hours).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+
+        return CalcResult(
+            metric="sales_per_labor_hour",
+            value=sales_per_hour,
+            unit="MXN/hora",
+            status="ok",
+            context=(
+                f"Productividad laboral: {sales_per_hour} MXN/hora. "
+                f"Ventas totales: {total_sales:.2f} MXN / "
+                f"{total_hours:.2f} horas trabajadas el {date}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="sales_per_labor_hour",
+            value=None,
+            unit="MXN/hora",
+            status="incomplete_data",
+            context=f"Error al calcular sales_per_labor_hour para {business_id}: {exc}",
+        )
+
+
+# ===========================================================================
+# FUNCIONES DE CÁLCULO — NIVEL INVENTARIO
+# Spec: s3_motor_calculo.md §Funciones — Nivel Inventario
+# Fuente: tabla inventory_daily (migración 005)
+# ===========================================================================
+
+
+def calc_waste_cost(business_id: str, date: str, db: Any) -> CalcResult:
+    """
+    Calcula el costo monetario de la merma del día en pesos mexicanos.
+
+    Fórmula:
+        waste_cost = Σ(waste_recorded × unit_cost)
+                     WHERE business_id AND date
+
+    Fuente de datos:
+        - inventory_daily: waste_recorded, unit_cost
+
+    Unidad: "MXN"
+    Status: siempre "ok" (sin umbrales definidos aún).
+    Edge: sin registros en inventory_daily → status: "incomplete_data".
+    Edge: waste_recorded = 0 en todos → value: 0, status: "ok".
+    """
+    try:
+        # --- 1. Obtener registros de inventory_daily para el día ---
+        resp = (
+            db.table("inventory_daily")
+            .select("ingredient_id, ingredient_name, waste_recorded, unit_cost")
+            .eq("business_id", business_id)
+            .eq("date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="waste_cost",
+                value=None,
+                unit="MXN",
+                status="incomplete_data",
+                context=(
+                    f"Sin registros de inventario diario para {business_id} el {date}."
+                ),
+            )
+
+        # --- 2. Calcular costo total de merma ---
+        total_waste_cost = Decimal("0")
+        desglose: list[str] = []
+
+        for row in rows:
+            waste = Decimal(str(row.get("waste_recorded") or 0))
+            unit_cost = Decimal(str(row.get("unit_cost") or 0))
+            costo_linea = waste * unit_cost
+            total_waste_cost += costo_linea
+
+            if waste > Decimal("0"):
+                nombre = row.get("ingredient_name") or row.get("ingredient_id", "?")
+                desglose.append(f"{nombre}: {waste} × {unit_cost} = {costo_linea:.2f}")
+
+        total_waste_cost = total_waste_cost.quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+
+        # --- 3. Construir contexto ---
+        if desglose:
+            detalle = "; ".join(desglose[:5])  # Máx 5 líneas para legibilidad
+            if len(desglose) > 5:
+                detalle += f" (+{len(desglose) - 5} más)"
+            context_str = (
+                f"Costo de merma del {date}: {total_waste_cost} MXN. "
+                f"Desglose: {detalle}."
+            )
+        else:
+            context_str = (
+                f"Sin merma registrada para {business_id} el {date}. "
+                f"Costo de merma: 0 MXN."
+            )
+
+        return CalcResult(
+            metric="waste_cost",
+            value=total_waste_cost,
+            unit="MXN",
+            status="ok",
+            context=context_str,
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="waste_cost",
+            value=None,
+            unit="MXN",
+            status="incomplete_data",
+            context=f"Error al calcular costo de merma para {business_id}: {exc}",
+        )
+
+
+def calc_stock_days_remaining(business_id: str, date: str, db: Any) -> CalcResult:
+    """
+    Calcula los días de stock restantes por ingrediente.
+
+    Fórmula (por ingrediente):
+        consumo_diario_promedio = AVG(consumo_teorico) de los últimos 7 días
+                                 (solo días con consumo_teorico > 0)
+        days_remaining = current_stock / consumo_diario_promedio
+
+    Retorna como value el MÍNIMO de days_remaining entre todos los ingredientes
+    (alerta temprana: el ingrediente que se agotará primero).
+
+    Fuente de datos:
+        - inventory_daily: current_stock (del día actual), consumo_teorico (últimos 7 días)
+
+    Unidad: "días"
+    Umbrales:
+        - critical : days_remaining < 3
+        - warning  : days_remaining < 7
+        - ok       : days_remaining >= 7
+    Edge: sin historial → status: "incomplete_data".
+    Edge: consumo_diario_promedio = 0 para un ingrediente → se omite (no se consume).
+    """
+    try:
+        # --- 1. Obtener stock actual del día ---
+        resp_hoy = (
+            db.table("inventory_daily")
+            .select("ingredient_id, ingredient_name, current_stock")
+            .eq("business_id", business_id)
+            .eq("date", date)
+            .execute()
+        )
+        rows_hoy = resp_hoy.data or []
+
+        if not rows_hoy:
+            return CalcResult(
+                metric="stock_days_remaining",
+                value=None,
+                unit="días",
+                status="incomplete_data",
+                context=(
+                    f"Sin registros de inventario diario para {business_id} el {date}."
+                ),
+            )
+
+        # --- 2. Calcular rango de últimos 7 días para consumo promedio ---
+        dt = datetime.strptime(date, "%Y-%m-%d")
+        start_7d = (dt - timedelta(days=6)).strftime("%Y-%m-%d")
+
+        resp_hist = (
+            db.table("inventory_daily")
+            .select("ingredient_id, consumo_teorico, date")
+            .eq("business_id", business_id)
+            .gte("date", start_7d)
+            .lte("date", date)
+            .execute()
+        )
+        rows_hist = resp_hist.data or []
+
+        if not rows_hist:
+            return CalcResult(
+                metric="stock_days_remaining",
+                value=None,
+                unit="días",
+                status="incomplete_data",
+                context=(
+                    f"Sin historial de consumo en los últimos 7 días para {business_id}."
+                ),
+            )
+
+        # --- 3. Agrupar consumo histórico por ingrediente ---
+        # Solo contar días con consumo_teorico > 0
+        consumo_por_ing: dict[str, list[Decimal]] = {}
+        for row in rows_hist:
+            ing_id = row["ingredient_id"]
+            consumo = Decimal(str(row.get("consumo_teorico") or 0))
+            if consumo > Decimal("0"):
+                consumo_por_ing.setdefault(ing_id, []).append(consumo)
+
+        # --- 4. Calcular days_remaining por ingrediente ---
+        resultados_ing: list[dict] = []
+        min_days: Decimal | None = None
+
+        for row_hoy in rows_hoy:
+            ing_id = row_hoy["ingredient_id"]
+            nombre = row_hoy.get("ingredient_name") or ing_id
+            stock = Decimal(str(row_hoy.get("current_stock") or 0))
+
+            # Si no hay historial de consumo para este ingrediente, omitir
+            if ing_id not in consumo_por_ing:
+                continue
+
+            valores_consumo = consumo_por_ing[ing_id]
+            consumo_promedio = sum(valores_consumo) / Decimal(str(len(valores_consumo)))
+
+            # Si el promedio es 0 (todos los días tienen consumo 0), omitir
+            if consumo_promedio == Decimal("0"):
+                continue
+
+            days_rem = (stock / consumo_promedio).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+
+            resultados_ing.append({
+                "ingredient_id": ing_id,
+                "ingredient_name": nombre,
+                "current_stock": float(stock),
+                "consumo_diario_promedio": float(consumo_promedio),
+                "days_remaining": float(days_rem),
+            })
+
+            if min_days is None or days_rem < min_days:
+                min_days = days_rem
+
+        # --- 5. Evaluar resultado ---
+        if not resultados_ing:
+            return CalcResult(
+                metric="stock_days_remaining",
+                value=None,
+                unit="días",
+                status="incomplete_data",
+                context=(
+                    f"Ningún ingrediente tiene consumo registrado en los últimos 7 días "
+                    f"para {business_id}."
+                ),
+            )
+
+        # Encontrar el ingrediente con menor days_remaining para el contexto
+        ingrediente_critico = min(resultados_ing, key=lambda x: x["days_remaining"])
+        resumen_top = "; ".join(
+            f"{r['ingredient_name']}: {r['days_remaining']:.1f}d"
+            for r in sorted(resultados_ing, key=lambda x: x["days_remaining"])[:5]
+        )
+
+        # --- 6. Evaluar umbrales ---
+        status: CalcStatus = "ok"
+        if min_days < Decimal("3"):
+            status = "critical"
+        elif min_days < Decimal("7"):
+            status = "warning"
+
+        return CalcResult(
+            metric="stock_days_remaining",
+            value=min_days,
+            unit="días",
+            status=status,
+            context=(
+                f"Ingrediente más crítico: {ingrediente_critico['ingredient_name']} "
+                f"con {ingrediente_critico['days_remaining']:.1f} días de stock. "
+                f"Top 5 urgentes: {resumen_top}. "
+                f"Total ingredientes evaluados: {len(resultados_ing)}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="stock_days_remaining",
+            value=None,
+            unit="días",
+            status="incomplete_data",
+            context=f"Error al calcular días de stock para {business_id}: {exc}",
+        )

@@ -122,29 +122,27 @@ REGLAS ESTRICTAS:
    usa un rango estimado con la fuente de datos usada.
 7. REGLA ABSOLUTA: anomalías de tipo "source_discrepancy" SIEMPRE tienen severity "high",
    sin excepción, independientemente del contexto o daily_context.tags.
-8. PROHIBIDO modificar severity basándose en daily_context.tags — el contexto se adjunta
-   en observed_causality pero NUNCA reduce ni aumenta la severidad de una anomalía.
+8. observed_causality está DEPRECADO y siempre es null. No existe contexto externo
+   que modifique severity — la severidad se basa EXCLUSIVAMENTE en los datos de S3.
 
 Responde ÚNICAMENTE con el JSON estructurado solicitado. Sin texto adicional."""
 
 
 def _build_user_prompt(
     calc_results: list[dict],
-    daily_context_tags: Optional[dict],
     business_id: str,
     date: str,
 ) -> str:
     """Construye el mensaje de usuario con los datos de S3 para el LLM."""
     calc_json = json.dumps(calc_results, ensure_ascii=False, indent=2, default=str)
-    context_json = json.dumps(daily_context_tags, ensure_ascii=False) if daily_context_tags else "null"
 
     return f"""Analiza los siguientes resultados del Motor de Cálculo S3 para el negocio {business_id} el {date}.
 
 ## Resultados de S3 (CalcResult[]):
 {calc_json}
 
-## Contexto del día (DailyContextTags — solo para observed_causality, NO modifica severity):
-{context_json}
+## observed_causality (deprecado):
+null
 
 ## Tu tarea:
 1. Identifica TODAS las anomalías presentes en los datos de S3.
@@ -152,7 +150,7 @@ def _build_user_prompt(
    - anomaly_id: UUID único (genera uno nuevo)
    - type: clasifica según el tipo de anomalía
    - description: descripción técnica precisa, sin lenguaje CEO
-   - severity: "low" | "medium" | "high" — basado SOLO en los datos, nunca en el contexto
+   - severity: "low" | "medium" | "high" — basado SOLO en los datos
    - quantified_impact: impacto cuantificado en MXN o % (nunca null)
    - data_points: evidencia numérica específica de los CalcResult
    - metric_origin: nombre exacto de la métrica de S3 que originó la anomalía
@@ -202,21 +200,23 @@ class ForensicCFOAgent:
             calc_results       : lista de CalcResult serializados (dicts)
             business_id        : UUID del negocio
             date               : YYYY-MM-DD
-            daily_context_tags : tags del día — adjuntados en observed_causality,
-                                 NUNCA modifican severity
+            daily_context_tags : DEPRECATED — parámetro mantenido por backward
+                                 compatibility pero siempre ignorado.
+                                 observed_causality es siempre None.
 
         Returns:
             ForensicReport validado con Pydantic
 
         Correctness properties garantizadas:
-            P1: observed_causality nunca modifica severity
+            P1: observed_causality siempre None (deprecated)
             P2: risk_level "high" ↔ ≥1 anomalía high
             P3: source_discrepancy siempre severity "high"
             P4: ForensicReport sin campo archetype
             P5: evidence_sources solo contiene fuentes realmente comparadas
         """
         # --- 1. Construir prompt ---
-        user_prompt = _build_user_prompt(calc_results, daily_context_tags, business_id, date)
+        # daily_context_tags is ignored (deprecated) — observed_causality always None
+        user_prompt = _build_user_prompt(calc_results, business_id, date)
 
         # --- 2. Llamar a gpt-4o con structured output (JSON schema) ---
         response = self._client.chat.completions.create(
@@ -258,7 +258,7 @@ class ForensicCFOAgent:
         risk_level = _compute_risk_level(anomalies)
 
         # --- 6. Construir ForensicReport ---
-        # P1: observed_causality se adjunta tal cual — S4 nunca la usa para modificar severity
+        # P1: observed_causality is always None (deprecated — daily_context removed)
         # P4: sin campo archetype
         report = ForensicReport(
             business_id=business_id,
@@ -266,7 +266,7 @@ class ForensicCFOAgent:
             risk_level=risk_level,
             anomalies=anomalies,
             evidence_sources=llm_data.get("evidence_sources", []),
-            observed_causality=daily_context_tags,  # adjunto sin interpretación
+            observed_causality=None,
             generated_at=datetime.now(timezone.utc).isoformat(),
         )
 
