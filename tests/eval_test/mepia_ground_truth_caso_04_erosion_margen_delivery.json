@@ -354,7 +354,39 @@
           "unit_cost_hace_30d_mxn_kg": 220.0
         }
       ]
-    }
+    },
+    "recetas": [
+      {
+        "id": "P-150",
+        "product_name": "Chilaquiles Verdes con Pollo",
+        "sale_price": 150.0,
+        "ingredients": {
+          "pollo": 0.15,
+          "tortilla": 0.10,
+          "salsa_verde": 0.08
+        }
+      },
+      {
+        "id": "P-090",
+        "product_name": "Combo Para Llevar",
+        "sale_price": 90.0,
+        "ingredients": {
+          "pan_hamburguesa": 0.05,
+          "carne_res": 0.12,
+          "papas": 0.06
+        }
+      },
+      {
+        "id": "P-301",
+        "product_name": "Pizza Individual Margarita",
+        "sale_price": 160.0,
+        "ingredients": {
+          "masa_pizza": 0.08,
+          "queso_mozzarella": 0.12,
+          "salsa_tomate": 0.05
+        }
+      }
+    ]
   },
   "esperado_S3": [
     {
@@ -383,11 +415,7 @@
     {
       "metric": "calc_delivery_commission_cost",
       "periodo": "dia",
-      "value": {
-        "UberEats": 172.8,
-        "Rappi": 80.0,
-        "total": 252.8
-      },
+      "value": 252.80,
       "unit": "MXN",
       "status": "informativo",
       "detalle": "UberEats: 4 órdenes x $160 subtotal x 27% = $172.80. Rappi: 2 órdenes x $160 x 25% = $80.00."
@@ -395,7 +423,7 @@
     {
       "metric": "calc_commission_cost_ratio",
       "periodo": "dia",
-      "value": 0.1003,
+      "value": 10.03,
       "status": "warning",
       "detalle": "252.80 / 2520.00 (ventas base subtotal) = 10.03%, por encima del umbral propuesto de 8%."
     },
@@ -437,8 +465,9 @@
     {
       "metric": "calc_avg_ticket",
       "periodo": "dia",
-      "value": 162.4,
-      "status": "ok"
+      "value": 140.0,
+      "status": "ok",
+      "detalle": "Base estandarizada a subtotal (sin IVA) tras decision de diseno: IVA es impuesto de traslado, no ingreso propio. sum(subtotal)=2520.00 / n=18 ordenes = 140.0. (Valor anterior con base total_net: 162.4)"
     },
     {
       "metric": "calc_cancellation_rate",

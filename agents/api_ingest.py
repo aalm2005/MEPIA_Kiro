@@ -95,6 +95,14 @@ class CancellationRecord(BaseModel):
     timing: Literal["pre_comanda", "post_comanda"]
 
 
+class ReprintRecord(BaseModel):
+    """Registro de una reimpresión de ticket."""
+
+    order_id: str
+    responsable: str                    # cajero/mesero que reimprimió
+    hora: str                           # HH:MM, mismo formato que llega de la API
+
+
 class ShiftData(BaseModel):
     """Datos de un turno de caja."""
 
@@ -119,7 +127,7 @@ class ShiftAuditEvent(BaseModel):
     sucursal_id: str
     date: date
     cancellations: list[CancellationRecord] = []
-    reprints: int = 0                   # número de reimpresiones de tickets
+    reprints: list[ReprintRecord] = []  # reimpresiones de tickets (con responsable)
     shifts: list[ShiftData]             # al menos 1 turno por día
     clock_records: list[ClockRecord] = []
 

@@ -1169,11 +1169,11 @@ def calc_avg_ticket(
     Calcula el ticket promedio de ventas en un rango de fechas.
 
     Fórmula:
-        avg_ticket = Σ(total_net) / COUNT(tickets)
+        avg_ticket = Σ(subtotal) / COUNT(tickets)
 
     Fuentes de datos:
         - transactions: type="ingreso", category="venta" en rango de fechas.
-        - Campo amount = total_net de cada ticket.
+        - Campo raw_metadata.subtotal de cada ticket.
 
     Unidad: "MXN"
     Status: siempre "ok" (sin umbrales definidos aún).
@@ -1183,7 +1183,7 @@ def calc_avg_ticket(
         # --- 1. Obtener tickets de venta en el rango ---
         resp = (
             db.table("transactions")
-            .select("amount")
+            .select("amount, raw_metadata")
             .eq("business_id", business_id)
             .eq("type", "ingreso")
             .eq("category", "venta")
@@ -1206,9 +1206,12 @@ def calc_avg_ticket(
             )
 
         # --- 2. Calcular promedio ---
-        total_net = sum(Decimal(str(r["amount"])) for r in rows)
+        total_subtotal = sum(
+            Decimal(str((r.get("raw_metadata") or {}).get("subtotal", 0)))
+            for r in rows
+        )
         count = Decimal(str(len(rows)))
-        avg = (total_net / count).quantize(
+        avg = (total_subtotal / count).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
 
@@ -1219,7 +1222,7 @@ def calc_avg_ticket(
             status="ok",
             context=(
                 f"Ticket promedio: {avg} MXN. "
-                f"Total ventas: {total_net:.2f} MXN en {len(rows)} tickets "
+                f"Total ventas: {total_subtotal:.2f} MXN en {len(rows)} tickets "
                 f"({start_date} a {end_date})."
             ),
         )
@@ -1472,7 +1475,9 @@ def calc_discount_rate(
         - transactions.raw_metadata: campos discounts, subtotal, cajero_id, mesero_id
 
     Unidad: "%"
-    Status: siempre "ok" (sin umbrales definidos aún).
+    Umbrales:
+        - warning  : discount_rate > 10%
+        - ok       : discount_rate <= 10%
     Edge: Σsubtotal = 0 → status: "incomplete_data".
     """
     try:
@@ -1544,6 +1549,11 @@ def calc_discount_rate(
             total_discounts / total_subtotal * Decimal("100")
         ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+        # --- 3b. Evaluar umbrales ---
+        status: CalcStatus = "ok"
+        if discount_rate > Decimal("10"):
+            status = "warning"
+
         # --- 4. Calcular tasa por responsable ---
         responsable_detail: dict[str, dict[str, str]] = {}
         for staff_id, data in by_responsable.items():
@@ -1572,7 +1582,7 @@ def calc_discount_rate(
             metric="tasa_descuento",
             value=discount_rate,
             unit="%",
-            status="ok",
+            status=status,
             context=(
                 f"Tasa de descuento: {discount_rate}% "
                 f"(descuentos: {total_discounts:.2f} MXN / subtotal: {total_subtotal:.2f} MXN). "
@@ -3003,6 +3013,172 @@ def calc_delivery_commission_cost(
         )
 
 
+def calc_commission_cost_ratio(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Ratio de comisión de delivery sobre las ventas totales del día.
+
+    Formula:
+        ratio = total_commission / Σ(subtotal de TODAS las ordenes del dia, todos los canales) × 100
+
+    Umbral: >8% (base subtotal, todos los canales) -> warning. Sin nivel critico
+    definido todavia -- dejar solo "warning"/"ok" por ahora.
+
+    NOTA: esta funcion necesita el subtotal del dia COMPLETO (Comedor + Para llevar +
+    Delivery), no solo las ordenes de delivery.
+    """
+    try:
+        import json
+
+        # Mapeo: campo en PaymentBreakdown → nombre en delivery_platform_config.platform
+        PLATFORM_MAP = {
+            "uber_eats": "UberEats",
+            "rappi": "Rappi",
+            "didi_food": "DiDiFood",
+        }
+
+        # --- 1. Obtener TODOS los tickets del día (todos los canales) ---
+        resp = (
+            db.table("transactions")
+            .select("amount, raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="commission_cost_ratio",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Sin tickets de venta para {business_id} el {date}."
+                ),
+            )
+
+        # --- 2. Acumular subtotal TOTAL del día y ventas por plataforma ---
+        total_subtotal = Decimal("0")
+        platform_sales: dict[str, Decimal] = {field: Decimal("0") for field in PLATFORM_MAP}
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            subtotal = Decimal(str(metadata.get("subtotal", 0) or 0))
+            total_subtotal += subtotal
+
+            # Acumular ventas por plataforma desde PaymentBreakdown
+            payment_breakdown = metadata.get("PaymentBreakdown") or {}
+            for field in PLATFORM_MAP:
+                val = Decimal(str(payment_breakdown.get(field, 0) or 0))
+                platform_sales[field] += val
+
+        # Edge: subtotal total es 0
+        if total_subtotal == Decimal("0"):
+            return CalcResult(
+                metric="commission_cost_ratio",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Subtotal acumulado es 0 para {business_id} el {date}. "
+                    "No es posible calcular ratio de comisión."
+                ),
+            )
+
+        # --- 3. Calcular comisión total desde delivery_platform_config ---
+        total_commission = Decimal("0")
+        breakdown: dict[str, dict[str, str]] = {}
+        missing_configs: list[str] = []
+
+        for field, platform_name in PLATFORM_MAP.items():
+            sales = platform_sales[field]
+            if sales == Decimal("0"):
+                continue
+
+            # Buscar tasa vigente para la plataforma
+            config_resp = (
+                db.table("delivery_platform_config")
+                .select("commission_rate")
+                .eq("business_id", business_id)
+                .eq("platform", platform_name)
+                .lte("effective_date", date)
+                .order("effective_date", desc=True)
+                .limit(1)
+                .execute()
+            )
+            config_rows = config_resp.data or []
+
+            if not config_rows:
+                missing_configs.append(platform_name)
+                continue
+
+            commission_rate = Decimal(str(config_rows[0]["commission_rate"]))
+            commission = (sales * commission_rate).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            total_commission += commission
+
+            breakdown[platform_name] = {
+                "ventas": str(sales.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+                "tasa": str(commission_rate),
+                "comision": str(commission),
+            }
+
+        # Edge: alguna plataforma con ventas no tiene config
+        if missing_configs:
+            breakdown_json = json.dumps(breakdown) if breakdown else "{}"
+            return CalcResult(
+                metric="commission_cost_ratio",
+                value=None,
+                unit="%",
+                status="incomplete_data",
+                context=(
+                    f"Sin configuración de comisión para: {', '.join(missing_configs)}. "
+                    f"No se puede calcular ratio. "
+                    f"Plataformas calculadas: {breakdown_json}."
+                ),
+            )
+
+        # --- 4. Calcular ratio ---
+        ratio = (
+            total_commission / total_subtotal * Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # --- 5. Determinar status por umbral ---
+        status = "warning" if ratio > Decimal("8") else "ok"
+
+        breakdown_json = json.dumps(breakdown)
+
+        return CalcResult(
+            metric="commission_cost_ratio",
+            value=ratio,
+            unit="%",
+            status=status,
+            context=(
+                f"Ratio comisión delivery: {ratio}% "
+                f"(comisión total: {total_commission:.2f} MXN / "
+                f"subtotal día completo: {total_subtotal:.2f} MXN). "
+                f"Umbral: 8%. "
+                f"Desglose: {breakdown_json}."
+            ),
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="commission_cost_ratio",
+            value=None,
+            unit="%",
+            status="incomplete_data",
+            context=f"Error al calcular ratio de comisión para {business_id}: {exc}",
+        )
+
+
 def calc_staff_courtesy_ratio(
     business_id: str,
     date: str,
@@ -3433,14 +3609,16 @@ def calc_reprint_rate(business_id: str, date: str, db: Any) -> CalcResult:
     """
     Calcula la tasa de reimpresiones del día como porcentaje del total de tickets.
 
-    Tipo B — desagregación por responsable cuando el POS lo entregue.
-    En v1, si el POS no entrega responsable por reprint, se reporta solo el total.
+    Tipo B — incluye desagregación por responsable (MANDATORY).
 
     Fórmula:
-        reprint_rate = Σ(reprints) / total_tickets × 100
+        reprint_rate = COUNT(reprints) / total_tickets × 100
+
+    Desagregación by_responsable:
+        GROUP BY reprints.responsable → {count, pct_of_total}
 
     Fuentes de datos:
-        - shift_audit_events.reprints (int por turno)
+        - shift_audit_events.reprints (JSONB array de objetos {order_id, responsable, hora})
         - pos_inputs.num_transactions (total tickets del día)
 
     Umbrales:
@@ -3453,6 +3631,8 @@ def calc_reprint_rate(business_id: str, date: str, db: Any) -> CalcResult:
         - 0 reprints → value: 0, status: "ok"
     """
     try:
+        import json
+
         # --- 1. Obtener shift_audit_events del día ---
         events_resp = (
             db.table("shift_audit_events")
@@ -3463,12 +3643,20 @@ def calc_reprint_rate(business_id: str, date: str, db: Any) -> CalcResult:
         )
         events_rows = events_resp.data or []
 
-        # --- 2. Sumar reprints de todos los turnos ---
-        total_reprints = 0
+        # --- 2. Consolidar todos los registros de reimpresión del día ---
+        all_reprints: list[dict] = []
         for row in events_rows:
-            val = row.get("reprints")
-            if val is not None:
-                total_reprints += int(val)
+            reprints_data = row.get("reprints") or []
+            if isinstance(reprints_data, list):
+                all_reprints.extend(reprints_data)
+            elif isinstance(reprints_data, int):
+                # Legacy: int means N reprints with no responsable detail
+                # Treat as N unknown reprints (backwards compat)
+                for _ in range(reprints_data):
+                    all_reprints.append({"order_id": "unknown", "responsable": "desconocido", "hora": ""})
+
+        # Count
+        total_reprints = len(all_reprints)
 
         # --- 3. Obtener total de tickets del día ---
         pos_resp = (
@@ -3517,13 +3705,34 @@ def calc_reprint_rate(business_id: str, date: str, db: Any) -> CalcResult:
             Decimal(str(total_reprints)) / Decimal(str(total_tickets)) * Decimal("100")
         ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-        # --- 5. Evaluar umbrales ---
+        # --- 5. Desagregación por responsable ---
+        by_responsable: dict[str, dict] = {}
+        for r in all_reprints:
+            resp_name = r.get("responsable", "desconocido")
+            if resp_name not in by_responsable:
+                by_responsable[resp_name] = {"count": 0, "pct_of_total": Decimal("0")}
+            by_responsable[resp_name]["count"] += 1
+
+        # Calculate pct_of_total
+        for resp_name, data in by_responsable.items():
+            data["pct_of_total"] = float(
+                (Decimal(str(data["count"])) / Decimal(str(total_reprints)) * Decimal("100"))
+                .quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            )
+
+        # --- 6. Evaluar umbrales ---
         if reprint_rate > Decimal("10"):
             status: CalcStatus = "critical"
         elif reprint_rate > Decimal("5"):
             status = "warning"
         else:
             status = "ok"
+
+        # Construir context con desglose
+        responsable_summary = "; ".join(
+            f"{name}: {info['count']} ({info['pct_of_total']}%)"
+            for name, info in by_responsable.items()
+        )
 
         return CalcResult(
             metric="reprint_rate",
@@ -3533,8 +3742,8 @@ def calc_reprint_rate(business_id: str, date: str, db: Any) -> CalcResult:
             context=(
                 f"Tasa de reimpresión: {reprint_rate}% "
                 f"({total_reprints}/{total_tickets} tickets el {date}). "
-                f"Nota v1: desagregación por responsable no disponible — "
-                f"POS no entrega responsable por reprint."
+                f"Por responsable: {responsable_summary}. "
+                f"by_responsable: {json.dumps(by_responsable)}"
             ),
         )
 
@@ -3712,8 +3921,8 @@ def calc_labor_cost_ratio(business_id: str, date: str, db: Any) -> CalcResult:
 
     Umbrales:
         - critical : labor_ratio > 35%
-        - warning  : labor_ratio > 25%
-        - ok       : labor_ratio <= 25%
+        - warning  : labor_ratio > 30%
+        - ok       : labor_ratio <= 30%
 
     Edge:
         - sin clock_records → status: "incomplete_data"
@@ -3818,7 +4027,7 @@ def calc_labor_cost_ratio(business_id: str, date: str, db: Any) -> CalcResult:
         # --- 5. Evaluar umbrales ---
         if labor_ratio > Decimal("35"):
             status: CalcStatus = "critical"
-        elif labor_ratio > Decimal("25"):
+        elif labor_ratio > Decimal("30"):
             status = "warning"
         else:
             status = "ok"
@@ -4071,7 +4280,10 @@ def calc_stock_days_remaining(business_id: str, date: str, db: Any) -> CalcResul
         - inventory_daily: current_stock (del día actual), consumo_teorico (últimos 7 días)
 
     Unidad: "días"
-    Status: siempre "ok" (sin umbrales definidos aún).
+    Umbrales:
+        - critical : days_remaining < 3
+        - warning  : days_remaining < 7
+        - ok       : days_remaining >= 7
     Edge: sin historial → status: "incomplete_data".
     Edge: consumo_diario_promedio = 0 para un ingrediente → se omite (no se consume).
     """
@@ -4186,11 +4398,18 @@ def calc_stock_days_remaining(business_id: str, date: str, db: Any) -> CalcResul
             for r in sorted(resultados_ing, key=lambda x: x["days_remaining"])[:5]
         )
 
+        # --- 6. Evaluar umbrales ---
+        status: CalcStatus = "ok"
+        if min_days < Decimal("3"):
+            status = "critical"
+        elif min_days < Decimal("7"):
+            status = "warning"
+
         return CalcResult(
             metric="stock_days_remaining",
             value=min_days,
             unit="días",
-            status="ok",
+            status=status,
             context=(
                 f"Ingrediente más crítico: {ingrediente_critico['ingredient_name']} "
                 f"con {ingrediente_critico['days_remaining']:.1f} días de stock. "

@@ -44,6 +44,7 @@ from agents.calc_engine import (
     calc_avg_ticket,
     calc_cancellation_rate,
     calc_channel_mix,
+    calc_commission_cost_ratio,
     calc_contribution_margin,
     calc_delivery_commission_cost,
     calc_discount_rate,
@@ -56,6 +57,57 @@ from agents.calc_engine import (
     calc_waste_cost,
     check_price_inflation,
 )
+
+
+# ---------------------------------------------------------------------------
+# Helper: extract per-responsable value from CalcResult context
+# ---------------------------------------------------------------------------
+
+def _extract_by_responsable(context: str, responsable: str) -> float | None:
+    """Extract a responsable's value from the by_responsable JSON embedded in context."""
+    import json as _json
+    marker = "by_responsable: "
+    idx = context.find(marker)
+    if idx == -1:
+        return None
+    json_start = idx + len(marker)
+    # Find the end of the JSON object (matching braces)
+    brace_count = 0
+    json_end = json_start
+    for i, ch in enumerate(context[json_start:], start=json_start):
+        if ch == '{':
+            brace_count += 1
+        elif ch == '}':
+            brace_count -= 1
+            if brace_count == 0:
+                json_end = i + 1
+                break
+    try:
+        by_resp = _json.loads(context[json_start:json_end])
+    except (ValueError, _json.JSONDecodeError):
+        return None
+    resp_data = by_resp.get(responsable)
+    if resp_data is None:
+        return None
+    # For cancellation_rate and reprint_rate: resp_data has "pct_of_total"
+    # For staff_courtesy_ratio: resp_data has "pct_of_all_courtesy"
+    # For discount_rate: resp_data has "discount_pct"
+    # Return the most relevant numeric field
+    if "pct_of_total" in resp_data:
+        return float(resp_data["pct_of_total"])
+    if "pct_of_all_courtesy" in resp_data:
+        return float(resp_data["pct_of_all_courtesy"])
+    if "discount_pct" in resp_data:
+        return float(resp_data["discount_pct"])
+    if "count" in resp_data:
+        return float(resp_data["count"])
+    # Fallback: try first numeric value
+    for v in resp_data.values():
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +296,8 @@ def build_mock_store(case_data: dict) -> dict[str, list[dict]]:
         "pos_inputs": [],
         "inventory_daily": [],
         "delivery_platform_config": [],
+        "recipes": [],
+        "unit_conversions": [],
     }
 
     total_tickets = 0
@@ -276,7 +330,7 @@ def build_mock_store(case_data: dict) -> dict[str, list[dict]]:
             "cierre_z": float(saldo_final_contado),
             "sobrante_faltante": float(sobrante_faltante),
             "cancellations": cancellations,
-            "reprints": len(reprints),
+            "reprints": reprints,
             "clock_records": turno.get("clock_in_out", []),
         })
 
@@ -309,7 +363,7 @@ def build_mock_store(case_data: dict) -> dict[str, list[dict]]:
             # We use "cortesia_staff" as the key (what the function needs) and
             # normalize key names during comparison.
             if pago == "Cortesía_Staff":
-                courtesy_val = float(orden.get("valor_cortesia", total_net))
+                courtesy_val = float(orden.get("subtotal", 0))
                 payment_breakdown = {"cortesia_staff": courtesy_val}
 
             raw_metadata = {
@@ -449,6 +503,29 @@ def build_mock_store(case_data: dict) -> dict[str, list[dict]]:
             "transaction_date": fecha_30d,
         })
 
+    # --- recipes (for calc_contribution_margin) ---
+    for receta in inp.get("recetas", []):
+        store["recipes"].append({
+            "id": receta["id"],
+            "business_id": negocio_id,
+            "product_name": receta.get("product_name", ""),
+            "sale_price": receta.get("sale_price", 0),
+            "ingredients": receta.get("ingredients", {}),
+        })
+
+    # --- compras (ingredient purchase transactions for calc_waste_analysis) ---
+    for compra in inp.get("compras", []):
+        store["transactions"].append({
+            "business_id": negocio_id,
+            "type": "egreso",
+            "category": "compra_ingrediente",
+            "ingredient_id": compra["ingredient_id"],
+            "quantity": compra["quantity"],
+            "unit": compra["unit"],
+            "unit_price": compra.get("unit_price", 0),
+            "transaction_date": compra.get("fecha", fecha),
+        })
+
     return store
 
 
@@ -496,26 +573,12 @@ def invoke_metric(metric_name: str, expected: dict, case_data: dict, db: MockDB)
         return calc_channel_mix(negocio_id, fecha, db)
 
     elif metric_name == "calc_staff_courtesy_ratio":
-        # Per-responsable not yet supported
-        nivel = expected.get("nivel", "")
-        if nivel == "por_responsable":
-            return None
         return calc_staff_courtesy_ratio(negocio_id, fecha, db)
 
     elif metric_name == "calc_cancellation_rate":
-        # Check if this is a per-responsable sub-expectation
-        nivel = expected.get("nivel", "")
-        if nivel == "por_responsable":
-            # Not yet supported — skip
-            return None
         return calc_cancellation_rate(negocio_id, fecha, db)
 
     elif metric_name == "calc_reprint_rate":
-        # Check if this is a per-responsable sub-expectation
-        nivel = expected.get("nivel", "")
-        if nivel == "por_responsable":
-            # Not yet supported — skip
-            return None
         return calc_reprint_rate(negocio_id, fecha, db)
 
     elif metric_name == "check_price_inflation":
@@ -539,20 +602,13 @@ def invoke_metric(metric_name: str, expected: dict, case_data: dict, db: MockDB)
         return calc_stock_days_remaining(negocio_id, fecha, db)
 
     elif metric_name == "calc_discount_rate":
-        # Per-responsable not yet supported
-        nivel = expected.get("nivel", "")
-        if nivel == "por_responsable":
-            return None
         return calc_discount_rate(negocio_id, fecha, fecha, db)
 
     elif metric_name == "calc_delivery_commission_cost":
         return calc_delivery_commission_cost(negocio_id, fecha, db)
 
     elif metric_name == "calc_commission_cost_ratio":
-        # calc_commission_cost_ratio is not a separate S3 function.
-        # It's derived from delivery_commission_cost / total_sales.
-        # Not directly mapped — report as not implemented.
-        return None
+        return calc_commission_cost_ratio(negocio_id, fecha, db)
 
     elif metric_name == "calc_contribution_margin":
         # Per-product metric — requires product_id from expected
@@ -810,14 +866,7 @@ def evaluate_case(case_path: str) -> CaseResult:
 
             if result is None:
                 # Determine if it's truly unmapped or just not-yet-supported
-                nivel = expected.get("nivel", "")
-                if nivel == "por_responsable":
-                    error_msg = (
-                        f"Per-responsable desagregation for '{metric_name}' "
-                        f"not yet implemented in S3"
-                    )
-                else:
-                    error_msg = f"Metric '{metric_name}' not mapped in eval runner"
+                error_msg = f"Metric '{metric_name}' not mapped in eval runner"
 
                 metric_results.append(MetricComparison(
                     metric=metric_name,
@@ -830,6 +879,50 @@ def evaluate_case(case_path: str) -> CaseResult:
                     status_match=False,
                     passed=False,
                     error=error_msg,
+                ))
+                continue
+
+            # For por_responsable: extract the per-responsable value from context
+            if expected.get("nivel") == "por_responsable" and result.context:
+                resp_value = _extract_by_responsable(
+                    result.context, expected.get("responsable", "")
+                )
+                if resp_value is not None:
+                    actual_value = resp_value
+                    actual_status = result.status
+                else:
+                    metric_results.append(MetricComparison(
+                        metric=metric_name,
+                        qualifier=qualifier,
+                        expected_value=expected_value,
+                        expected_status=expected_status,
+                        actual_value=None,
+                        actual_status=None,
+                        value_match=False,
+                        status_match=False,
+                        passed=False,
+                        error=(
+                            f"Could not extract by_responsable value for "
+                            f"'{expected.get('responsable', '')}' from context"
+                        ),
+                    ))
+                    continue
+
+                # Compare
+                value_match = values_within_tolerance(expected_value, actual_value)
+                status_match = actual_status == expected_status
+                passed = value_match and status_match
+
+                metric_results.append(MetricComparison(
+                    metric=metric_name,
+                    qualifier=qualifier,
+                    expected_value=expected_value,
+                    expected_status=expected_status,
+                    actual_value=actual_value,
+                    actual_status=actual_status,
+                    value_match=value_match,
+                    status_match=status_match,
+                    passed=passed,
                 ))
                 continue
 
@@ -1168,6 +1261,7 @@ def _run_s3_all_metrics(case_data: dict, db: MockDB) -> list[dict]:
         ("calc_reprint_rate", lambda: calc_reprint_rate(negocio_id, fecha, db)),
         ("calc_discount_rate", lambda: calc_discount_rate(negocio_id, fecha, fecha, db)),
         ("calc_delivery_commission_cost", lambda: calc_delivery_commission_cost(negocio_id, fecha, db)),
+        ("calc_commission_cost_ratio", lambda: calc_commission_cost_ratio(negocio_id, fecha, db)),
         ("calc_waste_cost", lambda: calc_waste_cost(negocio_id, fecha, db)),
         ("calc_stock_days_remaining", lambda: calc_stock_days_remaining(negocio_id, fecha, db)),
     ]
