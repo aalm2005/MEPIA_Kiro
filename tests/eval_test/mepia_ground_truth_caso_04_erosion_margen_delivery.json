@@ -417,7 +417,7 @@
       "periodo": "dia",
       "value": 252.80,
       "unit": "MXN",
-      "status": "informativo",
+      "status": "ok",
       "detalle": "UberEats: 4 órdenes x $160 subtotal x 27% = $172.80. Rappi: 2 órdenes x $160 x 25% = $80.00."
     },
     {
@@ -428,35 +428,35 @@
       "detalle": "252.80 / 2520.00 (ventas base subtotal) = 10.03%, por encima del umbral propuesto de 8%."
     },
     {
-      "metric": "calc_contribution_margin",
+      "metric": "calc_contribution_margin_by_channel",
       "canal": "Comedor",
       "value": 0.733,
       "status": "ok",
       "detalle": "(1200.00 - 320.00) / 1200.00, sin comisión."
     },
     {
-      "metric": "calc_contribution_margin",
+      "metric": "calc_contribution_margin_by_channel",
       "canal": "Para llevar",
       "value": 0.689,
       "status": "ok",
       "detalle": "(360.00 - 112.00) / 360.00, sin comisión."
     },
     {
-      "metric": "calc_contribution_margin",
+      "metric": "calc_contribution_margin_by_channel",
       "canal": "UberEats",
       "value": 0.449,
-      "status": "warning",
+      "status": "ok",
       "detalle": "(640.00 - 180.00 - 172.80) / 640.00 — 28.4 puntos porcentuales por debajo del margen de Comedor."
     },
     {
-      "metric": "calc_contribution_margin",
+      "metric": "calc_contribution_margin_by_channel",
       "canal": "Rappi",
       "value": 0.469,
-      "status": "warning",
+      "status": "ok",
       "detalle": "(320.00 - 90.00 - 80.00) / 320.00 — 26.4 puntos porcentuales por debajo del margen de Comedor."
     },
     {
-      "metric": "calc_contribution_margin",
+      "metric": "calc_contribution_margin_by_channel",
       "canal": "dia_blended",
       "value": 0.621,
       "status": "ok",

@@ -557,7 +557,7 @@ def calc_waste_analysis(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
 
-        if merma_pct > Decimal("15"):
+        if merma_pct > Decimal("10"):
             status: CalcStatus = "critical"
         elif merma_pct > Decimal("5"):
             status = "warning"
@@ -689,6 +689,9 @@ def check_price_inflation(ingredient_id: str, business_id: str, db: Any) -> Calc
             .execute()
         )
         facturas = facturas_resp.data or []
+
+        # Filter out records without unit_price (e.g., quantity-only purchase records)
+        facturas = [f for f in facturas if f.get("unit_price") is not None]
 
         # Se necesitan al menos 2 facturas para comparar
         if len(facturas) < 2:
@@ -3235,6 +3238,8 @@ def calc_staff_courtesy_ratio(
         total_courtesy = Decimal("0")
         total_subtotal = Decimal("0")
         by_responsable: dict[str, Decimal] = {}
+        # Track subtotal per responsable (for personal rate calculation)
+        by_responsable_subtotal: dict[str, Decimal] = {}
 
         for row in rows:
             metadata = row.get("raw_metadata") or {}
@@ -3248,10 +3253,15 @@ def calc_staff_courtesy_ratio(
 
             # Identificar responsable (cajero_id o mesero_id)
             staff_id = metadata.get("cajero_id") or metadata.get("mesero_id")
-            if staff_id and courtesy > Decimal("0"):
-                by_responsable[staff_id] = (
-                    by_responsable.get(staff_id, Decimal("0")) + courtesy
+            if staff_id:
+                # Track ALL subtotals per responsable (not just courtesy orders)
+                by_responsable_subtotal[staff_id] = (
+                    by_responsable_subtotal.get(staff_id, Decimal("0")) + subtotal
                 )
+                if courtesy > Decimal("0"):
+                    by_responsable[staff_id] = (
+                        by_responsable.get(staff_id, Decimal("0")) + courtesy
+                    )
 
         # Edge: subtotal total es 0
         if total_subtotal == Decimal("0"):
@@ -3284,17 +3294,37 @@ def calc_staff_courtesy_ratio(
             total_courtesy / total_subtotal * Decimal("100")
         ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+        # Evaluar umbrales
+        # Nota: 1%/2% salió de benchmarks mensuales aplicados por error a datos diarios,
+        # que tienen mucho más ruido natural. 5% es el corte grounded para variación diaria
+        # (ver mepia_v4_metricas_diseno.md sección 3 para las fuentes).
+        status: CalcStatus = "ok"
+        if courtesy_ratio > Decimal("5"):
+            status = "critical"
+
         # --- 4. Desagregación por responsable (Tipo B) ---
         responsable_detail: dict[str, dict[str, str]] = {}
         for staff_id, staff_courtesy in by_responsable.items():
             pct_of_all = (
                 staff_courtesy / total_courtesy * Decimal("100")
             ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            staff_subtotal = by_responsable_subtotal.get(staff_id, Decimal("0"))
+            staff_rate = (
+                (staff_courtesy / staff_subtotal * Decimal("100")).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+                if staff_subtotal > Decimal("0")
+                else Decimal("0")
+            )
             responsable_detail[staff_id] = {
                 "courtesy_total": str(staff_courtesy.quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP
                 )),
                 "pct_of_all_courtesy": str(pct_of_all),
+                "subtotal_propio": str(staff_subtotal.quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )),
+                "rate_pct": str(staff_rate),
             }
 
         by_responsable_json = json.dumps(responsable_detail)
@@ -3303,7 +3333,7 @@ def calc_staff_courtesy_ratio(
             metric="staff_courtesy_ratio",
             value=courtesy_ratio,
             unit="%",
-            status="ok",
+            status=status,
             context=(
                 f"Ratio de cortesía staff: {courtesy_ratio}% "
                 f"(cortesías: {total_courtesy:.2f} MXN / subtotal: {total_subtotal:.2f} MXN). "
@@ -3469,6 +3499,8 @@ def calc_cancellation_rate(business_id: str, date: str, db: Any) -> CalcResult:
         - 0 cancellations → value: 0, status: "ok"
     """
     try:
+        import json
+
         # --- 1. Obtener shift_audit_events del día ---
         events_resp = (
             db.table("shift_audit_events")
@@ -3501,6 +3533,24 @@ def calc_cancellation_rate(business_id: str, date: str, db: Any) -> CalcResult:
             val = pr.get("num_transactions")
             if val is not None:
                 total_tickets += int(val)
+
+        # --- 3b. Count tickets per responsable from transactions (for personal rate) ---
+        tx_resp = (
+            db.table("transactions")
+            .select("raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        tx_rows = tx_resp.data or []
+        tickets_per_resp: dict[str, int] = {}
+        for tx in tx_rows:
+            md = tx.get("raw_metadata") or {}
+            cid = md.get("cajero_id") or ""
+            if cid:
+                tickets_per_resp[cid] = tickets_per_resp.get(cid, 0) + 1
 
         # Edge: sin tickets → incomplete_data
         if total_tickets == 0:
@@ -3567,6 +3617,17 @@ def calc_cancellation_rate(business_id: str, date: str, db: Any) -> CalcResult:
                 (Decimal(str(data["count"])) / Decimal(str(cancel_count)) * Decimal("100"))
                 .quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             )
+            # Add personal rate
+            own_tickets = tickets_per_resp.get(resp_name, 0)
+            if own_tickets > 0:
+                data["rate_pct"] = float(
+                    (Decimal(str(data["count"])) / Decimal(str(own_tickets)) * Decimal("100"))
+                    .quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                )
+                data["own_tickets"] = own_tickets
+            else:
+                data["rate_pct"] = 0.0
+                data["own_tickets"] = 0
 
         # --- 7. Evaluar umbrales ---
         if cancellation_rate > Decimal("5"):
@@ -3591,7 +3652,8 @@ def calc_cancellation_rate(business_id: str, date: str, db: Any) -> CalcResult:
                 f"Tasa de cancelación: {cancellation_rate}% "
                 f"({cancel_count}/{total_tickets} tickets). "
                 f"Pre-comanda: {pre_count} ({pre_pct}%), Post-comanda: {post_count} ({post_pct}%). "
-                f"Por responsable: {responsable_summary}."
+                f"Por responsable: {responsable_summary}. "
+                f"by_responsable: {json.dumps(by_responsable)}"
             ),
         )
 
@@ -3674,6 +3736,24 @@ def calc_reprint_rate(business_id: str, date: str, db: Any) -> CalcResult:
             if val is not None:
                 total_tickets += int(val)
 
+        # --- 3b. Count tickets per responsable from transactions (for personal rate) ---
+        tx_resp = (
+            db.table("transactions")
+            .select("raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        tx_rows = tx_resp.data or []
+        tickets_per_resp: dict[str, int] = {}
+        for tx in tx_rows:
+            md = tx.get("raw_metadata") or {}
+            cid = md.get("cajero_id") or ""
+            if cid:
+                tickets_per_resp[cid] = tickets_per_resp.get(cid, 0) + 1
+
         # Edge: sin tickets → incomplete_data
         if total_tickets == 0:
             return CalcResult(
@@ -3713,12 +3793,23 @@ def calc_reprint_rate(business_id: str, date: str, db: Any) -> CalcResult:
                 by_responsable[resp_name] = {"count": 0, "pct_of_total": Decimal("0")}
             by_responsable[resp_name]["count"] += 1
 
-        # Calculate pct_of_total
+        # Calculate pct_of_total and personal rate
         for resp_name, data in by_responsable.items():
             data["pct_of_total"] = float(
                 (Decimal(str(data["count"])) / Decimal(str(total_reprints)) * Decimal("100"))
                 .quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             )
+            # Add personal rate
+            own_tickets = tickets_per_resp.get(resp_name, 0)
+            if own_tickets > 0:
+                data["rate_pct"] = float(
+                    (Decimal(str(data["count"])) / Decimal(str(own_tickets)) * Decimal("100"))
+                    .quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                )
+                data["own_tickets"] = own_tickets
+            else:
+                data["rate_pct"] = 0.0
+                data["own_tickets"] = 0
 
         # --- 6. Evaluar umbrales ---
         if reprint_rate > Decimal("10"):
@@ -4216,6 +4307,7 @@ def calc_waste_cost(business_id: str, date: str, db: Any) -> CalcResult:
         # --- 2. Calcular costo total de merma ---
         total_waste_cost = Decimal("0")
         desglose: list[str] = []
+        worst_status: CalcStatus = "ok"
 
         for row in rows:
             waste = Decimal(str(row.get("waste_recorded") or 0))
@@ -4226,6 +4318,15 @@ def calc_waste_cost(business_id: str, date: str, db: Any) -> CalcResult:
             if waste > Decimal("0"):
                 nombre = row.get("ingredient_name") or row.get("ingredient_id", "?")
                 desglose.append(f"{nombre}: {waste} × {unit_cost} = {costo_linea:.2f}")
+
+            # Derive status from waste percentage (same thresholds as calc_waste_analysis)
+            consumo_teorico = Decimal(str(row.get("consumo_teorico") or 0))
+            if consumo_teorico > Decimal("0"):
+                waste_pct = waste / consumo_teorico * Decimal("100")
+                if waste_pct > Decimal("10"):
+                    worst_status = "critical"
+                elif waste_pct > Decimal("5") and worst_status != "critical":
+                    worst_status = "warning"
 
         total_waste_cost = total_waste_cost.quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
@@ -4250,7 +4351,7 @@ def calc_waste_cost(business_id: str, date: str, db: Any) -> CalcResult:
             metric="waste_cost",
             value=total_waste_cost,
             unit="MXN",
-            status="ok",
+            status=worst_status,
             context=context_str,
         )
 
@@ -4425,4 +4526,253 @@ def calc_stock_days_remaining(business_id: str, date: str, db: Any) -> CalcResul
             unit="días",
             status="incomplete_data",
             context=f"Error al calcular días de stock para {business_id}: {exc}",
+        )
+
+
+def calc_contribution_margin_by_channel(
+    business_id: str,
+    date: str,
+    db: Any,
+) -> CalcResult:
+    """
+    Margen de contribución por canal de venta (Comedor, Para llevar, UberEats, Rappi, etc.)
+    más un nivel "dia_blended" con el promedio del día completo.
+
+    Formula por canal:
+        margen = (subtotal_canal - costo_ingredientes_canal - comision_canal) / subtotal_canal
+
+    costo_ingredientes_canal: suma del costo de recetas (tabla recipes) de los productos
+    vendidos en ese canal, usando product_id de cada línea de producto en raw_metadata.
+
+    comision_canal: 0 para Comedor/Para llevar. Para canales de delivery, la comisión de
+    ese canal específico (misma lógica que calc_delivery_commission_cost usa para calcular
+    commission por plataforma).
+
+    dia_blended: mismo cálculo pero con subtotal/costo/comisión sumados de TODO el día,
+    todos los canales.
+
+    Status: siempre "ok" (informativo, sin umbral propio).
+    value: None (el desglose va en context como JSON).
+    unit: "ratio"
+    """
+    import json as _json
+
+    try:
+        # --- Mapeo de claves delivery en PaymentBreakdown → nombre canal ---
+        DELIVERY_KEY_TO_CHANNEL = {
+            "uber_eats": "UberEats",
+            "rappi": "Rappi",
+            "didi_food": "DiDiFood",
+        }
+        CHANNEL_TO_PLATFORM = {
+            "UberEats": "UberEats",
+            "Rappi": "Rappi",
+            "DiDiFood": "DiDiFood",
+        }
+
+        # --- 1. Obtener todas las recetas del negocio → mapa product_id → costo ---
+        recetas_resp = (
+            db.table("recipes")
+            .select("id, sale_price, ingredients")
+            .eq("business_id", business_id)
+            .execute()
+        )
+        recetas_rows = recetas_resp.data or []
+
+        # Calcular costo de cada receta
+        product_cost_map: dict[str, Decimal] = {}
+        for receta in recetas_rows:
+            product_id = receta["id"]
+            ingredientes: dict = receta.get("ingredients") or {}
+            costo_total = Decimal("0")
+
+            for ing_id, qty_raw in ingredientes.items():
+                qty = Decimal(str(qty_raw))
+                # Obtener último precio unitario del ingrediente
+                tx_resp = (
+                    db.table("transactions")
+                    .select("unit_price")
+                    .eq("ingredient_id", ing_id)
+                    .order("transaction_date", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                tx_rows = tx_resp.data or []
+                if tx_rows and tx_rows[0].get("unit_price") is not None:
+                    precio_unitario = Decimal(str(tx_rows[0]["unit_price"]))
+                    costo_total += qty * precio_unitario
+
+            product_cost_map[product_id] = costo_total
+
+        # --- 2. Obtener tickets del día ---
+        resp = (
+            db.table("transactions")
+            .select("raw_metadata")
+            .eq("business_id", business_id)
+            .eq("type", "ingreso")
+            .eq("category", "venta")
+            .eq("transaction_date", date)
+            .execute()
+        )
+        rows = resp.data or []
+
+        if not rows:
+            return CalcResult(
+                metric="contribution_margin_by_channel",
+                value=None,
+                unit="ratio",
+                status="ok",
+                context=f"Sin transacciones para {business_id} el {date}.",
+            )
+
+        # --- 3. Clasificar ordenes por canal y acumular subtotal + costo ---
+        # Estructura: channel → {subtotal, costo, comision}
+        channel_data: dict[str, dict[str, Decimal]] = {}
+
+        for row in rows:
+            metadata = row.get("raw_metadata") or {}
+            order_type = metadata.get("order_type", "")
+            subtotal = Decimal(str(metadata.get("subtotal", 0) or 0))
+            payment_breakdown = metadata.get("PaymentBreakdown") or {}
+            items = metadata.get("items") or []
+
+            # Determinar canal
+            if order_type == "Comedor":
+                channel = "Comedor"
+            elif order_type == "Para llevar":
+                channel = "Para llevar"
+            elif order_type == "Delivery App":
+                # Determinar plataforma desde PaymentBreakdown keys
+                channel = None
+                for key in payment_breakdown:
+                    if key in DELIVERY_KEY_TO_CHANNEL:
+                        channel = DELIVERY_KEY_TO_CHANNEL[key]
+                        break
+                if channel is None:
+                    # Fallback: tratar como delivery genérico
+                    channel = "Delivery"
+            else:
+                channel = order_type or "Otro"
+
+            # Inicializar canal
+            if channel not in channel_data:
+                channel_data[channel] = {
+                    "subtotal": Decimal("0"),
+                    "costo": Decimal("0"),
+                    "comision": Decimal("0"),
+                }
+
+            channel_data[channel]["subtotal"] += subtotal
+
+            # Calcular costo de ingredientes para esta orden
+            order_cost = Decimal("0")
+            if items:
+                for item in items:
+                    item_id = item.get("item_id", "")
+                    qty = Decimal(str(item.get("quantity", 1)))
+                    if item_id in product_cost_map:
+                        order_cost += product_cost_map[item_id] * qty
+            else:
+                # Sin detalle de items: estimar usando producto representativo del canal
+                # Usar el costo promedio de todos los productos conocidos ponderado
+                # por el subtotal de la orden vs precio promedio
+                if product_cost_map:
+                    # Buscar un producto cuyo sale_price coincida con el subtotal
+                    matched = False
+                    for receta in recetas_rows:
+                        sale_price = Decimal(str(receta.get("sale_price", 0)))
+                        if sale_price > 0 and sale_price == subtotal:
+                            pid = receta["id"]
+                            if pid in product_cost_map:
+                                order_cost = product_cost_map[pid]
+                                matched = True
+                                break
+                    if not matched:
+                        # Usar ratio promedio costo/precio de todos los productos
+                        total_sale = sum(
+                            Decimal(str(r.get("sale_price", 0)))
+                            for r in recetas_rows
+                            if Decimal(str(r.get("sale_price", 0))) > 0
+                        )
+                        total_cost = sum(product_cost_map.values())
+                        if total_sale > 0:
+                            avg_ratio = total_cost / total_sale
+                            order_cost = (subtotal * avg_ratio).quantize(
+                                Decimal("0.01"), rounding=ROUND_HALF_UP
+                            )
+
+            channel_data[channel]["costo"] += order_cost
+
+        # --- 4. Calcular comisiones por canal de delivery ---
+        for channel, platform_name in CHANNEL_TO_PLATFORM.items():
+            if channel not in channel_data:
+                continue
+            sales = channel_data[channel]["subtotal"]
+            if sales == Decimal("0"):
+                continue
+
+            # Buscar tasa vigente para la plataforma
+            config_resp = (
+                db.table("delivery_platform_config")
+                .select("commission_rate")
+                .eq("business_id", business_id)
+                .eq("platform", platform_name)
+                .lte("effective_date", date)
+                .order("effective_date", desc=True)
+                .limit(1)
+                .execute()
+            )
+            config_rows = config_resp.data or []
+            if config_rows:
+                commission_rate = Decimal(str(config_rows[0]["commission_rate"]))
+                channel_data[channel]["comision"] = (
+                    sales * commission_rate
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        # --- 5. Calcular margen por canal ---
+        channel_margins: dict[str, float] = {}
+        total_subtotal = Decimal("0")
+        total_costo = Decimal("0")
+        total_comision = Decimal("0")
+
+        for channel, data in channel_data.items():
+            sub = data["subtotal"]
+            cos = data["costo"]
+            com = data["comision"]
+
+            total_subtotal += sub
+            total_costo += cos
+            total_comision += com
+
+            if sub > Decimal("0"):
+                margen = ((sub - cos - com) / sub).quantize(
+                    Decimal("0.001"), rounding=ROUND_HALF_UP
+                )
+                channel_margins[channel] = float(margen)
+
+        # --- 6. dia_blended ---
+        if total_subtotal > Decimal("0"):
+            margen_blended = (
+                (total_subtotal - total_costo - total_comision) / total_subtotal
+            ).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+            channel_margins["dia_blended"] = float(margen_blended)
+
+        # --- 7. Retornar resultado ---
+        context_json = _json.dumps(channel_margins)
+
+        return CalcResult(
+            metric="contribution_margin_by_channel",
+            value=None,
+            unit="ratio",
+            status="ok",
+            context=context_json,
+        )
+
+    except Exception as exc:
+        return CalcResult(
+            metric="contribution_margin_by_channel",
+            value=None,
+            unit="ratio",
+            status="incomplete_data",
+            context=f"Error al calcular margen por canal para {business_id}: {exc}",
         )

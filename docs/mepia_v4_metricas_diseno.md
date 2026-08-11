@@ -3,7 +3,7 @@
 
 **Documentos relacionados** (este archivo es el punto de entrada, no repite su contenido completo):
 - `mepia_ground_truth_8_escenarios.md` — los 8 casos de ground truth formulados en detalle
-- `kiro_prompt_ingesta_api_metricas.md` — prompt listo para pegar en Kiro (24 funciones nuevas de S3)
+- `kiro_prompt_ingesta_api_metricas.md` — prompt listo para pegar en Kiro (25 funciones nuevas de S3)
 
 ---
 
@@ -15,7 +15,7 @@
 | 2 | Fuente de datos primaria = API JSON a nivel línea (5 capas). PDF/OCR queda documentado como fallback, sin más inversión de tiempo | ✅ Cerrado |
 | 3 | Catálogo de 31 métricas candidatas, clasificadas por tipo y aporte al LLM | ✅ Cerrado |
 | 4 | Config de negocio: dos tipos — Tipo A (dato de catálogo, sin default posible) y Tipo B (umbral de materialidad, con default de arranque) | ✅ Cerrado |
-| 5 | Prompt de Kiro corregido: de 16 a 24 funciones nuevas de S3 (se habían quedado 9 fuera sin razón declarada, incluyendo cancelaciones/reimpresiones por responsable, que resultó ser un requisito real, no opcional; "por responsable" terminó como dimensión estándar dentro de la misma función, no como funciones aparte — de ahí que el número final sea 24 y no 25) | ✅ Cerrado |
+| 5 | Prompt de Kiro corregido: de 16 a 25 funciones nuevas de S3 (se habían quedado 9 fuera sin razón declarada, incluyendo cancelaciones/reimpresiones por responsable, que resultó ser un requisito real, no opcional; "por responsable" terminó como dimensión estándar dentro de la misma función, no como funciones aparte). Nota: en la sesión de codificación se corrigió temporalmente a 24 por esta misma razón, pero al ejecutar el eval runner se encontró que `calc_commission_cost_ratio` faltaba del catálogo (`caso_04` la esperaba como métrica separada) — el número correcto y final es **25** | ✅ Cerrado |
 | 6 | Ground truth: unidad = **día completo**, método = mayoría sintético dirigido + un caso de revisión ciega. A futuro, el diario real de producción (`mepia_memory`/`audit_runs`) alimenta casos reales sin rediseño adicional | ✅ Cerrado |
 | 7 | 8 escenarios de ground truth formulados **y con JSON real construido** (`tests/eval_test/`, nombres reales `mepia_ground_truth_caso_01...08_*.json`) | ✅ Cerrado (ver archivos aparte) |
 | 8 | Paradigma de interfaz de salida: **híbrido** — pestañas tipo dashboard (Configuración, Métricas, Gráficas, otras) + pestaña "Chat IA" con semáforo + narrativa libre | ✅ Cerrado |
@@ -26,6 +26,8 @@
 | — | Revisión ciega del Caso 8 (segunda persona o segunda IA, sin ver `anomalias_inyectadas`) | ⏳ Pendiente — prompt listo en `caso_08_prompt_revision_ciega.md` |
 | — | Campos exactos de Umbrales/Costos en la pantalla de Configuración | ⏳ Pendiente |
 | 12 | Prompt de Kiro (Tareas 1–5) ejecutado sobre los specs (`.kiro/specs/mepia/`) y revisado contra este documento — sin discrepancias bloqueantes; corregido el conteo de funciones nuevas (25→24, ver decisión #5) | ✅ Cerrado — falta fase de codificación (ver sección 7) |
+| 13 | Primer corrida del eval runner (Nivel 1, determinista): 69/95 métricas (72.6%) en bruto. Revisión contra los JSON de ground truth encontró que varias "categorías" del autodiagnóstico de Kiro estaban mal etiquetadas — ver detalle en sección 8. Tres decisiones de diseño resueltas: (a) `calc_commission_cost_ratio` se agrega como 25ª función de S3, separada de `calc_delivery_commission_cost` (mismo patrón que `calc_waste_analysis`/`calc_waste_cost`); necesita el subtotal del día completo (todos los canales) como denominador — mismo tipo de dependencia cruzada que ya tiene `calc_daily_break_even`; (b) base de `calc_avg_ticket` estandarizada a `subtotal` (no `total_net`) en los 8 casos de ground truth — el IVA es impuesto de traslado, no ingreso propio, mismo principio que ya aplicaba a los ratios "% de ventas"; (c) umbral de `staff_courtesy_ratio` grounded con benchmarks reales — RestaurantOwner.com (1-2% para comps+comidas de empleados+merma combinados) y SupplyClub (3-4% para "comps" con definición idéntica a la de MEPIA) — se fijó en 1% warning / 2% crítico, el extremo más estricto dado que la definición de MEPIA es más angosta que ambas fuentes | ✅ Cerrado |
+| 14 | Revisión del código real (`agents/calc_engine.py`, `agents/api_ingest.py`, `tests/eval_test/eval_runner.py`, rama `feat/codificacion-session-s1b-s3-eval`) contra las decisiones de este documento. Corrección importante: el bug de `staff_courtesy_ratio` NO estaba en S3 (S3 ya usa `subtotal` correctamente) — estaba en el eval runner, que arma el dato de prueba usando `valor_cortesia` en vez de `subtotal`. También se confirmó que `by_responsable` para cortesía/descuento/cancelación YA está implementado en S3 — el eval runner simplemente nunca las invoca cuando `nivel="por_responsable"` (`return None # Not yet supported`). **Hallazgo nuevo**: `calc_reprint_rate` genuinamente no puede desagregarse por responsable — `ShiftAuditEvent.reprints` es un `int` (conteo), no una lista con responsable, a diferencia de `cancellations`. El ground truth (`caso_03`) ya trae `responsable` por evento de reimpresión — el dato existe desde la API, se decidió corregir el esquema de ingesta para preservarlo (`reprints: list[ReprintRecord]`, mismo patrón que `cancellations`). Umbral de `calc_labor_cost_ratio` grounded (30% warning / 35% crítico, ver sección 3). Lista completa de fixes pendientes en `docs/kiro_prompt_correccion_post_eval.md` | ✅ Cerrado — falta ejecutar el prompt de corrección |
 
 ---
 
@@ -43,7 +45,7 @@
 
 - **Passthrough** (sin cálculo): solo metadata de identidad (negocio, sucursal, periodo) y registros puntuales de excepción ya detectados por una regla determinista. Casi nada más debe llegar crudo al LLM — es la misma razón por la que el motor de Anthropic pasó de 21% a 95%: el ruido no es "mucha información", es información sin agregar.
 - **Control** (validación de integridad, no insight de negocio): validación de IVA, cumplimiento de Cierre X/Z. Viven en `S2 Gatekeeper`, no en S3, y solo se exponen si fallan.
-- **Calculado** (función determinista en S3): el resto — 24 funciones nuevas más las 3 que ya existían en el repo (`calc_contribution_margin`, `calc_waste_analysis`, `check_price_inflation`).
+- **Calculado** (función determinista en S3): el resto — 25 funciones nuevas más las 3 que ya existían en el repo (`calc_contribution_margin`, `calc_waste_analysis`, `check_price_inflation`).
 
 El listado completo, función por función, está en `kiro_prompt_ingesta_api_metricas.md`, Tarea 3 (ya corregido).
 
@@ -68,25 +70,33 @@ El listado completo, función por función, está en `kiro_prompt_ingesta_api_me
 
 | Métrica | Default sugerido |
 |---|---|
-| Tasa de descuento | >10% del subtotal en un turno |
+| Tasa de descuento | >10% del subtotal en un turno — fuente: RestaurantOwner.com |
+| Cortesías de staff (`staff_courtesy_ratio`) | >1% (warning), >2% (crítico) — fuente: RestaurantOwner.com (1-2% para comps+comidas de empleados+merma combinados) y SupplyClub (3-4% para "comps", definición idéntica a la de MEPIA); se optó por el extremo más estricto dado que MEPIA mide solo cortesías, un subconjunto más angosto que ambas fuentes |
 | Cancelaciones | >5% general; post-comanda: cualquier caso ya es flag |
 | Reimpresión | >3% |
 | Varianza de caja por turno | >1% o $100 MXN (flag), >3% o $500 MXN (crítico) |
 | Merma vs. consumo teórico | >5% (warning), >10% (crítico) — alineado con benchmark de industria (4-10% promedio en restaurantes; 3.11% en servicio completo per estudio Univ. Arizona) |
 | Días de inventario restante | <7 días (warning), <3 días (crítico) — ajustar por tipo de insumo |
 | Inflación de insumo | >5% en 30 días |
-| Costo de comisión delivery (erosión de margen) | >8% de las ventas del día (base subtotal) |
+| Costo de comisión delivery en pesos (`calc_delivery_commission_cost`) | Sin umbral — puramente informativo, el desglose por plataforma no dispara status |
+| Ratio de comisión delivery sobre ventas (`calc_commission_cost_ratio`) | >8% de las ventas del día (base subtotal, todos los canales) |
+| Costo de merma en pesos (`calc_waste_cost`) | ⏳ Sin definir — solo existe el umbral en % (fila de arriba); pendiente decidir si se necesita uno en MXN aparte |
+| % de nómina sobre ventas (`calc_labor_cost_ratio`) | >30% (warning), >35% (crítico) — fuente: consenso de múltiples fuentes de industria (25-35% rango sano típico; mediana de servicio completo 2026 en 36.5%, operadores rentables en 34.2% — National Restaurant Association 2026 vía WhippleWood) |
 | Top/bottom sellers a mostrar | Top 10 |
 | Validación de IVA | 16% (8% si aplica zona fronteriza — confirmar con contador) |
 
-**⚠️ Base de cálculo estandarizada — encontrado en revisión ciega del Caso 8**: todo ratio "% de
-ventas" (`discount_rate`, `staff_courtesy_ratio`, y cualquiera que se agregue después) usa
+**⚠️ Base de cálculo estandarizada — encontrado en revisión ciega del Caso 8, y confirmado también para `avg_ticket` en la sesión del eval runner**: todo ratio "% de
+ventas" (`discount_rate`, `staff_courtesy_ratio`, `commission_cost_ratio`, y cualquiera que se agregue después) usa
 `subtotal` (antes de IVA, antes de cualquier descuento o cortesía de OTRAS órdenes) como
 denominador. Nunca `total_net`. Razón: dos revisiones independientes del mismo día calcularon
 `staff_courtesy_ratio` distinto (12.4% vs 9.63%) porque una usó `total_net` como base — que ya
 trae restado el descuento de otras órdenes del mismo responsable, inflando artificialmente el
 ratio de la segunda métrica cuando dos anomalías coinciden en la misma persona/periodo. Con
-`subtotal` fijo como base, esa distorsión desaparece.
+`subtotal` fijo como base, esa distorsión desaparece. **`avg_ticket` no es un ratio "% de ventas"
+pero se decidió estandarizarlo también a `subtotal`**: el IVA es un impuesto de traslado que la
+empresa retiene para el SAT, no ingreso propio, así que no debería inflar ningún indicador de
+cuánto se vendió. Esto cambió el valor esperado de `avg_ticket` en los 8 casos de ground truth
+(antes usaban `total_net` de facto, sin que la decisión estuviera documentada explícitamente).
 
 Esta tabla mapea directo a las pestañas **"2. UMBRALES"** y **"3. COSTOS"** del prototipo de Figma — Umbrales = Tipo B, Costos = Tipo A. Coincidencia útil: el diseño de datos y el de UI ya están alineados sin haberlo planeado explícitamente.
 
@@ -174,7 +184,7 @@ Si el semáforo vive *dentro* de la pestaña "Chat IA", el dueño tiene que entr
 | # | Qué falta | Estado |
 |---|---|---|
 | 1 | Nodo de ingesta API | Spec listo y actualizado en `.kiro/specs/mepia/` (Tarea 2), falta codificar |
-| 2 | Extender S3 con las 24 funciones nuevas | Spec listo y actualizado en `.kiro/specs/mepia/` (Tarea 3, corregida), falta codificar |
+| 2 | Extender S3 con las 25 funciones nuevas (calc_commission_cost_ratio agregada tras revisión de caso_04) | Spec listo y actualizado en `.kiro/specs/mepia/` (Tarea 3, corregida), falta codificar |
 | 3 | Retirar `contexto del día` | Spec actualizado en `.kiro/specs/mepia/` (Tarea 1), falta codificar |
 | 4 | Set de evaluación offline | Diseño de los 8 escenarios listo, falta construir el JSON real de cada uno |
 | 5 | Capa de skills | Sigue sin diseñar — próximo tema pendiente después del eval set |
@@ -183,11 +193,36 @@ Si el semáforo vive *dentro* de la pestaña "Chat IA", el dueño tiene que entr
 
 ---
 
-## 8. Próximos pasos pendientes
+## 8. Primer eval runner (Nivel 1, determinista) — resultado y correcciones al autodiagnóstico
+
+Primera corrida: 69/95 métricas (72.6%) en bruto, 3/8 casos pasando completos. Kiro reportó su
+propio análisis de discrepancias atribuyendo la mayoría a "no es un fallo de S3, es el eval
+runner". Revisado contra los JSON de ground truth directamente — algunas categorías estaban bien,
+otras no:
+
+| Categoría del reporte de Kiro | Veredicto tras verificar | Qué era en realidad |
+|---|---|---|
+| `staff_courtesy_ratio` "valor cercano" | ❌ Mal etiquetado | Bug real: sumaba `valor_cortesia` (con IVA) en vez de `subtotal` — 150.8/2470=6.11% vs 130/2470=5.26% esperado |
+| `discount_rate` / `stock_days_remaining` "threshold no definido" | ❌ Mal etiquetado (2 de 4) | El umbral ya estaba documentado en este mismo doc (10%, y <7/<3 días) — el código simplemente no lo estaba leyendo |
+| `staff_courtesy_ratio` / `waste_cost` "threshold no definido" | ✅ Correcto (2 de 4) | Sí eran decisiones pendientes de verdad — resueltas arriba (courtesy) y sigue pendiente (waste_cost en MXN) |
+| `calc_commission_cost_ratio` "not mapped, no es función standalone" | ❌ Mal etiquetado | No era un problema de mapeo — la función nunca existió en el catálogo. Ground truth de `caso_04` la exige como métrica separada. Se agrega como 25ª función (ver decisión #13) |
+| `calc_avg_ticket` "1.4% fuera de tolerancia" | ❌ Mal etiquetado | No era ruido de tolerancia — era una pregunta de diseño sin resolver (base subtotal vs total_net). Resuelto arriba: subtotal en los 8 casos |
+| Per-responsable "not yet implemented in eval runner" | ⏳ Sin verificar | Creíble pero no comprobado — pedir a Kiro el `CalcResult.context` crudo de un caso antes de aceptarlo como solo-runner |
+| Recetas/compras faltantes en el mock (`caso_04`/`caso_05`) | ✅ Probablemente correcto | Hueco de construcción del mock, no de S3 — sin verificar a fondo pero es plausible |
+
+**No se acepta el "~85-90% legítimo" que propuso Kiro como el número honesto todavía.** Falta:
+corregir el bug de `staff_courtesy_ratio`, cablear los 2 umbrales ya documentados, agregar
+`calc_commission_cost_ratio`, aplicar la base `subtotal` a `avg_ticket`, verificar la afirmación
+de per-responsable con evidencia, y arreglar los huecos de mock — recién después de eso el
+siguiente número que salga del eval runner es el que cuenta.
+
+---
+
+## 9. Próximos pasos pendientes
 
 1. ~~Construir el JSON real del Escenario 2 (faltante de caja)~~ — hecho, los 8 casos ya existen en `tests/eval_test/`.
 2. Definir los campos exactos de las pestañas Umbrales/Costos en la pantalla de Configuración (ya tienen la lista de qué debe capturarse en la sección 3, falta el detalle de UI).
 3. ~~Ejecutar el prompt de Kiro (Tareas 1–5) para generar/actualizar los specs~~ — hecho y revisado, sin discrepancias bloqueantes.
-4. **Codificar** lo que los specs actualizados ya describen (nodo de ingesta API, las 24 funciones nuevas de S3, retiro de `contexto del día`, tabla `delivery_platform_config`) — esto es lo único que falta antes de poder correr los 8 casos de `tests/eval_test/` contra un pipeline real.
+4. **Codificar** lo que los specs actualizados ya describen (nodo de ingesta API, las 25 funciones nuevas de S3, retiro de `contexto del día`, tabla `delivery_platform_config`) — esto es lo único que falta antes de poder correr los 8 casos de `tests/eval_test/` contra un pipeline real.
 5. Correr los 8 casos y registrar el primer número de accuracy honesto.
 6. Después del eval set: diseñar la capa de skills y el footer de procedencia — quedaron marcados como pendientes en la sección 7 y no se ha vuelto a ellos.

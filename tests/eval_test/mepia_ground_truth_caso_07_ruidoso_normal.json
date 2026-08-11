@@ -634,8 +634,9 @@
     {
       "metric": "calc_avg_ticket",
       "periodo": "dia",
-      "value": 178.09,
-      "status": "ok"
+      "value": 167.22,
+      "status": "ok",
+      "detalle": "Base estandarizada a subtotal (sin IVA) tras decision de diseno: IVA es impuesto de traslado, no ingreso propio. sum(subtotal)=6020.00 / n=36 ordenes = 167.22. (Valor anterior con base total_net: 178.09)"
     },
     {
       "metric": "calc_payment_mix",
