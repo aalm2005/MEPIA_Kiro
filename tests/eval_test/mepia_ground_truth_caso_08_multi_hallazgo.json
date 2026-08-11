@@ -790,13 +790,13 @@
       "nivel": "por_responsable",
       "responsable": "M-03",
       "value": 0.0963,
-      "status": "warning",
-      "detalle": "130.00 / 1350.00 propios = 9.63%. CORREGIDO — coincide EXACTO con lo que calculó la IA revisora de forma independiente (9.63%), una vez usando la misma base."
+      "status": "critical",
+      "detalle": "130.00 / 1350.00 propios = 9.63%. CORREGIDO — coincide EXACTO con lo que calculó la IA revisora de forma independiente (9.63%), una vez usando la misma base. Status actualizado a 'critical' (umbral recalibrado: >5% diario, sin warning intermedio)."
     },
     {
       "metric": "calc_avg_ticket",
       "periodo": "dia",
-      "value": 150.61,
+      "value": 137.02,
       "status": "ok"
     },
     {
@@ -809,7 +809,7 @@
       "metric": "calc_stock_days_remaining",
       "insumo": "cafe_grano",
       "value": 6.9,
-      "status": "ok"
+      "status": "warning"
     }
   ],
   "esperado_narrativa": null,

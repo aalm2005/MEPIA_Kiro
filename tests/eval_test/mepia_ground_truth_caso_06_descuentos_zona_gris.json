@@ -10,7 +10,7 @@
     },
     {
       "donde": "día completo, concentrado en mesero M-03",
-      "que": "staff_courtesy_ratio = 6.0% (umbral sugerido 3%)",
+      "que": "staff_courtesy_ratio = 6.0% (umbral warning 1%, critico 2%)",
       "metrica_que_deberia_dispararse": "calc_staff_courtesy_ratio — warning"
     }
   ],
@@ -29,8 +29,9 @@
         "fuente": "RestaurantOwner.com — >10% de ventas brutas es el punto donde el descuento se considera significativo en la industria"
       },
       "staff_courtesy_ratio": {
-        "umbral_unico": 0.03,
-        "fuente": "estimación propia, sin benchmark de industria verificado — revisar — Base de cálculo CORREGIDA tras revisión ciega (2026): usar subtotal (sin IVA, sin descuentos de otras órdenes) como denominador, no total_net, para evitar que una anomalía distorsione la medición de otra."
+        "warning": 0.01,
+        "critical": 0.02,
+        "fuente": "RestaurantOwner.com (rango 1-2% para la categoria combinada de comps por atencion al cliente + comidas de empleados + merma, aplicado aqui de forma conservadora solo a cortesias) y SupplyClub (3-4% especificamente para 'comps' segun su definicion, que coincide con la de MEPIA) - se opto por el extremo mas estricto (1-2%) dado que la definicion de MEPIA es mas angosta que ambas fuentes. Base de calculo: subtotal, corregido tras revision ciega (2026)."
       }
     }
   },
@@ -367,16 +368,16 @@
       "metric": "calc_staff_courtesy_ratio",
       "nivel": "dia_agregado",
       "value": 0.0526,
-      "status": "warning",
-      "detalle": "130.00 (subtotal cortesía) / 2470.00 (subtotal día) = 5.26%, por encima del umbral de 3%. CORREGIDO tras revisión ciega: antes se usaba total_net como base, lo cual se inflaba por el descuento simultáneo de las otras órdenes."
+      "status": "critical",
+      "detalle": "130.00 (subtotal cortesia) / 2470.00 (subtotal dia) = 5.26%, por encima del umbral critico de 2% (antes 3% umbral unico sin benchmark; ahora 1%/2% grounded en RestaurantOwner.com/SupplyClub). CORREGIDO tras revision ciega: antes se usaba total_net como base."
     },
     {
       "metric": "calc_staff_courtesy_ratio",
       "nivel": "por_responsable",
       "responsable": "M-03",
       "value": 0.0963,
-      "status": "warning",
-      "detalle": "130.00 / 1350.00 propios = 9.63%. CORREGIDO — antes 12.4% usando total_net como base."
+      "status": "critical",
+      "detalle": "130.00 / 1350.00 propios = 9.63%, muy por encima del umbral critico de 2%. CORREGIDO — antes 12.4% usando total_net como base."
     },
     {
       "metric": "calc_staff_courtesy_ratio",
@@ -388,8 +389,9 @@
     {
       "metric": "calc_avg_ticket",
       "periodo": "dia",
-      "value": 145.91,
-      "status": "ok"
+      "value": 145.29,
+      "status": "ok",
+      "detalle": "Base estandarizada a subtotal (sin IVA) tras decision de diseno: IVA es impuesto de traslado, no ingreso propio. sum(subtotal)=2470.00 / n=17 ordenes = 145.29. (Valor anterior con base total_net: 145.91)"
     },
     {
       "metric": "calc_cancellation_rate",

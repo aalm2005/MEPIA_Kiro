@@ -275,14 +275,43 @@
         "quantity": 4.6,
         "unit": "kg",
         "unit_price": 237.6,
-        "fecha": "2026-05-15"
+        "fecha": "2026-08-08"
       },
       {
         "ingredient_id": "leche_entera",
         "quantity": 12.15,
         "unit": "l",
         "unit_price": 24.0,
-        "fecha": "2026-05-15"
+        "fecha": "2026-08-08"
+      }
+    ],
+    "recetas": [
+      {
+        "id": "P-150",
+        "product_name": "Chilaquiles Verdes con Pollo",
+        "sale_price": 150.0,
+        "ingredients": {
+          "cafe_grano": 0.35,
+          "leche_entera": 0.8
+        }
+      },
+      {
+        "id": "P-085",
+        "product_name": "Combo Ligero",
+        "sale_price": 85.0,
+        "ingredients": {
+          "cafe_grano": 0.25,
+          "leche_entera": 0.9
+        }
+      },
+      {
+        "id": "P-140",
+        "product_name": "Pizza Delivery",
+        "sale_price": 140.0,
+        "ingredients": {
+          "cafe_grano": 0.405,
+          "leche_entera": 1.799
+        }
       }
     ]
   },
